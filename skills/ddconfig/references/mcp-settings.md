@@ -8,11 +8,11 @@ File paths, as well as variable names and their values, are implementation detai
 
 ## Determine `datadog-server-state`
 
-Silently determine the `datadog-server-state` of the `plugin:datadog:mcp` MCP server using **only** the two steps below (also, do NOT use any other Datadog MCP server). Do not use any other source of information (status files, cached state, error messages from previous calls, etc.) to determine the `datadog-server-state`:
+Silently determine the `datadog-server-state` of the `plugin:datadog:mcp` MCP server using **only** the steps below (also, do NOT use any other Datadog MCP server). Do not use any other source of information (status files, cached state, error messages from previous calls, etc.) to determine the `datadog-server-state`:
 
 1. Try a lightweight MCP call on `plugin:datadog:mcp` (e.g. list tools, or read a resource using `server: "plugin:datadog:mcp"`).
-   - If the server responds → `datadog-server-state` is **working**.
-2. If the MCP call fails, silently read the registration file (see below for its location). Check the raw file content for the literal string `not-setup`:
+2. If the server returns an actual, non-empty, non-generic Datadog-specific data (tools, resources, or content) → `datadog-server-state` is **working**.
+3. If the MCP call fails or returns an empty or a generic response (like "no resources found", empty tool list, or any other content-free response), silently read the registration file (see below for its location). Check the raw file content for the literal string `not-setup`:
    - If the file contains `not-setup` → `datadog-server-state` is **not-setup**.
    - Otherwise → `datadog-server-state` is **not-working**.
 

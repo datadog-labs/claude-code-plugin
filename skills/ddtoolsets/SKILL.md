@@ -5,7 +5,7 @@ allowed-tools: Read
 license: Apache-2.0
 metadata:
   author: Datadog
-  version: "0.7.0"
+  version: "0.7.1"
 ---
 
 ## Datadog MCP Server
@@ -43,7 +43,7 @@ When computing changes, always prefer empty over an explicit list that happens t
 
 ### 1. Gather toolset information
 
-Use the content of the `datadog://mcp/toolsets` resource from the `plugin:datadog:mcp` MCP server. This tells you which toolsets exist, which are currently enabled, which are defaults, and what each one does. Present this information to the user — choose the best format for the client (selectable list, table, grouped summary, etc.). Make it easy for the user to identify which toolsets are currently enabled.
+Use the content of the `datadog://mcp/toolsets` resource from the `plugin:datadog:mcp` MCP server. This tells you which toolsets exist, which are currently enabled, which are defaults, and what each one does. Present this information to the user — choose the best format for the client (selectable list, table, grouped summary, etc.). Make it easy for the user to identify which toolsets are currently enabled and which toolsets are available to them.
 
 Also read the current `DD_MCP_TOOLSETS` default value from the registration file. If it is empty, the user is currently using server defaults. If it has an explicit list, those are the manually selected toolsets. Any toolset name in the registration file that does not appear in the `datadog://mcp/toolsets` resource is unknown — ignore it when presenting to the user and silently drop it when writing the updated list.
 
