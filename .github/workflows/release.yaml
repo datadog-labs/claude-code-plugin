@@ -3,9 +3,14 @@ name: Release
 on:
   push:
     branches:
+      # Stable releases land on main; preview releases land on
+      # preview-<slug> branches. Both fire this workflow to create the
+      # matching GitHub Release.
       - main
+      - 'preview-*'
     paths:
       - '*-plugin/plugin.json'
+      - 'package.json'
 
 permissions:
   contents: write
@@ -15,20 +20,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Extract version from plugin.json
+      - name: Extract version
         id: version
         run: |
           MANIFEST=$(find . -maxdepth 2 -name plugin.json -path '*/.*-plugin/*' | head -1)
-          if [ -z "$MANIFEST" ]; then
-            echo "No plugin.json found"
+          if [ -n "$MANIFEST" ]; then
+            VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('${MANIFEST}','utf8')).version)")
+          elif [ -f package.json ]; then
+            VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version)")
+          else
+            echo "No plugin.json or package.json found"
             exit 1
           fi
-          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('${MANIFEST}','utf8')).version)")
+          # Preview versions carry a -preview.<slug> semver prerelease
+          # suffix; flag those so the GitHub Release is marked accordingly.
+          if [[ "${VERSION}" == *-preview.* ]]; then
+            IS_PRERELEASE=true
+          else
+            IS_PRERELEASE=false
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Detected version: ${VERSION}"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Detected version: ${VERSION} (prerelease=${IS_PRERELEASE})"
 
       - name: Check if release already exists
         id: check
@@ -45,8 +61,17 @@ jobs:
       - name: Create release
         if: steps.check.outputs.exists == 'false'
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
-            --generate-notes
+          # --target pins the new tag to the commit that triggered this
+          # workflow. Without it, `gh release create` would create the
+          # missing tag on the repo's default branch (main), which would
+          # make a preview-branch release point at main instead of the
+          # preview commit — and break the downstream npm-publish step
+          # for OpenCode previews, since it derives the dist-tag from the
+          # tagged commit's package.json.
+          ARGS="--title ${{ steps.version.outputs.tag }} --generate-notes --target ${{ github.sha }}"
+          if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
+            ARGS="$ARGS --prerelease"
+          fi
+          gh release create "${{ steps.version.outputs.tag }}" $ARGS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

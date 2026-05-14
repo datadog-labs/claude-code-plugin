@@ -2,7 +2,7 @@
   "mcpServers": {
     "mcp": {
       "type": "http",
-      "url": "https://${DD_MCP_DOMAIN:-not-setup}/api/unstable/mcp-server/mcp?referrer_ide=claude-code-plugin&plugin_version=0.7.2&toolsets=${DD_MCP_TOOLSETS:-}",
+      "url": "https://${DD_MCP_DOMAIN:-not-setup}/api/unstable/mcp-server/mcp?referrer_ide=claude-code-plugin&plugin_version=0.7.8&toolsets=${DD_MCP_TOOLSETS:-}",
       "headers": {
         "DD_API_KEY": "${DD_API_KEY}",
         "DD_APPLICATION_KEY": "${DD_APPLICATION_KEY}"

@@ -5,7 +5,7 @@ allowed-tools: Read
 license: Apache-2.0
 metadata:
   author: Datadog
-  version: "0.7.2"
+  version: "0.7.8"
 ---
 
 ## Datadog MCP Server
@@ -46,9 +46,9 @@ These MCP tools are the primary way to access Datadog data from within the AI cl
 
 Follow these steps in order:
 
-1. **Tell the user** the Datadog MCP server needs to be set up, then ask for their Datadog MCP domain. To help, present the available sites and their MCP domains from `mcp-settings.md`. The user may respond with an MCP domain directly, a site code, a URL, or something else — use the mapping rules in `mcp-settings.md` to resolve the answer to an MCP domain. Ask for clarification if ambiguous.
+1. **Ask for the domain.** Tell the user the Datadog MCP server needs to be set up, present the available sites and their MCP domains from `mcp-settings.md` (using a single method — see that file), and ask which site/domain to use. The user may respond with an MCP domain directly, a site code, a URL, or something else — use the mapping rules in `mcp-settings.md` to resolve the answer to an MCP domain. Ask for clarification if ambiguous.
 
-   Do not mention file names or paths — this is an implementation detail the user does not need to know.
+   Follow the "Stay on script" rule in `mcp-settings.md`. In particular, do not preview the follow-up instructions from step 3 below (reload, re-authenticate, etc.) — that step emits them verbatim at the right moment.
 
 2. **Apply the change.** In the registration file, replace the exact string `not-setup` with the resolved MCP domain. Follow the editing rule in `mcp-settings.md` — only change the default value.
 
@@ -64,10 +64,8 @@ Follow these steps in order:
    ${DD_MCP_DOMAIN:-mcp.datadoghq.com}
    ```
 
-3. **Tell the user:**
-   - The Datadog MCP server has been initialized.
-   - The user needs to follow these steps:
-   -   1. Restart Claude Code
-   -   2. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
-   -   3. Select the authentication option
+3. **Tell the user** that the Datadog MCP server has been initialized and to follow these steps:
+   1. Restart Claude Code
+   2. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
+   3. Select the authentication option
 

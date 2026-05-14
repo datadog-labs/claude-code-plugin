@@ -2,9 +2,16 @@
 
 The MCP JSON registration file is shared across all plugin skills. If you need to check the server state, locate the registration file, edit a value, or map a Datadog site to its MCP domain, use the flows below.
 
-### Do not mention file paths or variable names and values to the user
+### Stay on script
 
-File paths, as well as variable names and their values, are implementation details. When communicating with the user, describe the state ("the Datadog MCP server is not set up") or action ("the Datadog site has been updated") without revealing them.
+Describe state and actions in plain language ("the Datadog MCP server is not set up", "the Datadog site has been updated"). Never reveal, at any step:
+
+- File paths, file names, or directory layout.
+- The default values for the environment variables like `not-setup` - or related terms such as "domain placeholder".
+- Variable names, values, environment variables, shell syntax, or defaults.
+- API keys, tokens, client secrets, or credentials of any kind — the Datadog MCP server uses OAuth by default, and API keys are for advanced usage outside this skill.
+
+Beyond that, emit only what the current step instructs. Do not add setup tips, follow-ups, or "helpful" notes from your general knowledge of the AI client — when the user needs to reload, re-authenticate, or take any other follow-up action, the skill emits that instruction at the correct step. Pre-empting or paraphrasing it is a bug.
 
 ## Determine `datadog-server-state`
 

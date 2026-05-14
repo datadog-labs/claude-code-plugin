@@ -5,7 +5,7 @@ allowed-tools: Read
 license: Apache-2.0
 metadata:
   author: Datadog
-  version: "0.7.2"
+  version: "0.7.8"
 ---
 
 ## Datadog MCP Server
@@ -87,10 +87,9 @@ ${DD_MCP_TOOLSETS:-core,alerting}  →  ${DD_MCP_TOOLSETS:-}
 
 ### 5. Confirm
 
-Tell the user the toolsets have been updated, showing which toolsets are now enabled.
+Tell the user the toolsets have been updated including which toolsets are now enabled, and that they need to follow these steps:
 
-The user needs to follow these steps:
-  1. Restart Claude Code
-  2. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
-  3. Select the authentication option
+1. Restart Claude Code
+2. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
+3. Select the authentication option
 
