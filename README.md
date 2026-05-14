@@ -11,18 +11,17 @@ Query your Datadog data directly from Claude Code using natural language. Ask ab
 
 ## Getting started
 
-> If you already have the Datadog MCP server registered separately (e.g., in `.claude/mcp.json`), disable or remove it first to avoid conflicts by running `/mcp` in Claude Code.
+> If you already have the Datadog MCP server registered separately (e.g., in `.claude/mcp.json`), disable or remove it first to avoid conflicts. Run `/mcp` in Claude Code, then restart Claude Code.
 
-Start Claude Code, add the marketplace, install the plugin, and restart Claude Code:
+Start Claude Code, install the plugin from the official marketplace:
 
 ```
-/plugin marketplace add DataDog/datadog-client-plugin#claude-code
-/plugin install datadog@datadog-claude-code
+/plugin install datadog@claude-plugins-official
 ```
 
-> Auto-updates: Enable auto-update so Claude Code notifies when an update is available. Run /plugin, select the Marketplaces tab, select datadog-claude-code, then select Enable auto-update.
+> Auto-updates: Enable auto-update so Claude Code notifies when an update is available. Run /plugin, select the Marketplaces tab, select claude-plugins-official, then select Enable auto-update.
 
-Before you can start querying your Datadog data, you’ll need to connect the plugin to Datadog using your account. The setup process will guide you in selecting the correct Datadog MCP domain. After setup, restart Claude Code and then complete authentication.
+Before you can start querying your Datadog data, you’ll need to connect the plugin to Datadog using your account. The setup process will guide you in selecting the correct Datadog MCP domain. After setup, follow the instructions shown in Claude Code.
 
 > You can manually trigger setup by running the `/ddsetup` command.
 

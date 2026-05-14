@@ -5,7 +5,7 @@ allowed-tools: Read
 license: Apache-2.0
 metadata:
   author: Datadog
-  version: "0.7.2"
+  version: "0.7.10"
 ---
 
 ## Datadog MCP Server
@@ -31,10 +31,10 @@ When communicating with the user below, describe the server state and actions in
 The server is configured but not responding. Read the current `DD_MCP_DOMAIN` default value from the registration file, then present the user with the likely causes — do not follow these sequentially, show them all and use judgment:
 
 - **Domain issue.** Compare the domain against the site-to-domain table in `mcp-settings.md`. Only flag it as suspicious if it looks like a typo or a clearly malformed URL (e.g. `mcp.us5.datadog.com` missing the `hq`). A domain not in the standard table is not necessarily wrong — the user may be using a valid non-standard domain.
-- **Authentication.** The authentication may have expired or was never completed.
-  - The user needs to follow these steps:
-  -   1. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
-  -   2. Select the authentication option
+- **Authentication.** The authentication may have expired or was never completed, and the user needs to follow these steps:
+  1. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
+  2. Select the authentication option
+
 - **Network or access.** The user's network may be blocking the connection, or their Datadog account may not have API access, like not having the `MCP Read` permission.
 
 If the domain looks wrong, suggest running the [Domain Flow](#domain-flow) to correct it.
@@ -43,8 +43,11 @@ If the domain looks wrong, suggest running the [Domain Flow](#domain-flow) to co
 
 Changes the Datadog MCP domain the server connects to.
 
-1. Show the current domain information (from `whoami` → `dd_site` if available, or from the current `DD_MCP_DOMAIN` default value in the registration file).
-2. Ask which MCP domain to switch to. To help, present the available sites and their MCP domains from `mcp-settings.md`. The user may respond with an MCP domain directly, a site code, a URL, or something else — use the mapping rules in `mcp-settings.md` to resolve the answer. Ask for clarification if ambiguous.
+1. Show the current domain information (from `whoami` → `dd_site` if available, or from the current `DD_MCP_DOMAIN` default value in the registration file). Present it in plain language (e.g. "the plugin is currently connected to …") — follow the "Stay on script" rule in `mcp-settings.md`.
+2. **Ask for the new domain.** Present the available sites and their MCP domains from `mcp-settings.md` (using a single method — see that file), and ask which site/domain to switch to. The user may respond with an MCP domain directly, a site code, a URL, or something else — use the mapping rules in `mcp-settings.md` to resolve the answer. Ask for clarification if ambiguous.
+
+   Follow the "Stay on script" rule in `mcp-settings.md`. In particular, do not preview the follow-up instructions from step 4 below (reload, re-authenticate, etc.) — that step emits them verbatim at the right moment.
+
 3. Edit `DD_MCP_DOMAIN` in the registration file following the editing rule in `mcp-settings.md`.
 
    Before (example):
@@ -59,11 +62,10 @@ Changes the Datadog MCP domain the server connects to.
    ${DD_MCP_DOMAIN:-mcp.datadoghq.com}
    ```
 
-4. Tell the user the domain has been changed.
-   The user needs to follow these steps:
-     1. Restart Claude Code
-     2. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
-     3. Select the authentication option
+4. Tell the user the domain has been changed and to follow these steps:
+   1. Run the command `/reload-plugins`
+   2. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
+   3. Select the authentication option
 
 ## Organization Flow
 
@@ -72,10 +74,9 @@ Switches to a different Datadog organization. The agent cannot do this automatic
 Ask the user if they want to use an organization on the same domain or on a different domain.
 
 - If on the same domain:
-  - The user needs to reauthenticate and, during sign-in, choose the target organization in the browser.
-  - The user needs to follow these steps:
-  -   1. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
-  -   2. Select the authentication option
+  - The user needs to reauthenticate and, during sign-in, choose the target organization in the browser, using the following steps:
+    1. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
+    2. Select the authentication option
+
 - If on a different domain:
   - Run the [Domain Flow](#domain-flow) telling the user to choose the target organization in the browser during sign-in.
-
