@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__plugin_datadog_mcp__(get_widget|visualize_tabular_data)$",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/forward.sh", "async": true }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__plugin_datadog_mcp__(get_widget|visualize_tabular_data)$",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/forward.sh", "async": true }]
+      }
+    ]
+  }
+}
