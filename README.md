@@ -1,4 +1,7 @@
-**This plugin is currently in Preview.**
+**This feature preview of the overlay visualization**
+
+> [!IMPORTANT]
+> This is a preview of the overlay visualization feature. This is not the stable version of the Datadog Claude Code plugin. Contact us if you're interesting in feature testing this new plugin.
 
 # Datadog Claude Code Plugin
 
