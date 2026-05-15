@@ -1,0 +1,357 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'nonce-{{CSP_NONCE}}'; style-src 'unsafe-inline'; frame-src {{CSP_FRAME_SRC}}; form-action 'none'; base-uri 'none';"
+    />
+    <title>Dataviz MCP Host</title>
+    <style>
+      /* Structural reset — predictable layout inside WKWebView */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+
+      /* Full-bleed iframe wrapper; hidden until the MCP app signals initialized */
+      .iframe-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+      .iframe-container.visible {
+        opacity: 1;
+      }
+
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="iframe-container">
+      <iframe
+        id="app-frame"
+        src="{{FRAME_SRC}}"
+        sandbox="allow-scripts allow-same-origin"
+        allow="clipboard-read; clipboard-write"
+        allowtransparency="true"
+      ></iframe>
+    </div>
+
+    <script nonce="{{CSP_NONCE}}">
+      const PROTOCOL_VERSION = '2026-01-26';
+
+      const DEBUG = {{DEBUG}};
+      function debug(...args) {
+          if (DEBUG) console.log('[MCP-HOST]', ...args);
+      }
+      function debugError(...args) {
+          console.error('[MCP-HOST ERROR]', ...args);
+      }
+
+      // ── Native Bridge (JS → Swift via WebKit) ──
+
+      // Must match JsMessage in ddviz.swift.
+      const NativeMessageType = Object.freeze({
+          SIZE_CHANGED: 'size-changed',            // { width, height }
+          REQUEST_DISPLAY_MODE: 'request-display-mode', // { mode }
+          INITIALIZED: 'initialized',
+          OPEN_LINK: 'open-link',                   // { url }
+          REVEAL: 'reveal',
+          SHUTDOWN: 'shutdown',                     // { reason }
+      });
+
+      function hasNativeBridge() {
+          return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeBridge);
+      }
+
+      function sendToNative(type, payload) {
+          if (!hasNativeBridge()) {
+              debug('Native bridge not available, skipping:', type);
+              return;
+          }
+          const msg = { type, payload };
+          debug('sendToNative:', msg);
+          try {
+              window.webkit.messageHandlers.nativeBridge.postMessage(JSON.stringify(msg));
+          } catch (e) {
+              debugError('sendToNative failed:', e);
+          }
+      }
+
+      // ── Native → JS Callbacks (called by Swift via evalJs) ──
+
+      function handleThemeChanged(payload) {
+          if (!payload || !payload.theme) {
+              debugError('handleThemeChanged: missing theme in payload');
+              return;
+          }
+          debug('Theme changed to:', payload.theme);
+          theme = payload.theme;
+
+          if (isInitialized) {
+              sendNotification('ui/notifications/host-context-changed', getHostContext());
+          }
+      }
+
+      function handleDisplayModeChanged(payload) {
+          if (!payload || !payload.mode) {
+              debugError('handleDisplayModeChanged: missing mode in payload');
+              return;
+          }
+          debug('Display mode changed to:', payload.mode);
+          displayMode = payload.mode;
+
+          // Notify the iframe that host context has changed
+          if (isInitialized) {
+              sendNotification('ui/notifications/host-context-changed', getHostContext());
+          }
+      }
+
+      function handleWindowFocusChanged(payload) {
+          if (!payload || typeof payload.focused !== 'boolean') {
+              debugError('handleWindowFocusChanged: missing focused in payload');
+              return;
+          }
+          debug('Window focus changed:', payload.focused);
+      }
+
+      let isInitialized = false;
+      let theme = 'dark';
+      let displayMode = 'inline';
+
+      const frame = document.getElementById('app-frame');
+      const frameOrigin = new URL('{{FRAME_SRC}}').origin;
+
+      // ── Host Context ──
+
+      function getHostContext() {
+          return {
+              theme: theme,
+              displayMode: displayMode,
+              availableDisplayModes: ['inline', 'fullscreen'],
+              containerDimensions: {
+                  width: frame.clientWidth,
+                  maxHeight: frame.clientHeight,
+              },
+              userAgent: navigator.userAgent,
+              platform: 'desktop',
+          };
+      }
+
+      // ── Message Sending ──
+
+      function sendToApp(msg) {
+          debug('sendToApp:', msg.method || 'response');
+          if (!frame.contentWindow) {
+              debugError('frame.contentWindow is null!');
+              return;
+          }
+          try {
+              frame.contentWindow.postMessage(msg, frameOrigin);
+          } catch (e) {
+              debugError('postMessage failed:', e);
+          }
+      }
+
+      function sendNotification(method, params) {
+          sendToApp({
+              jsonrpc: '2.0',
+              method: method,
+              params: params,
+          });
+      }
+
+      function sendResponse(id, result) {
+          sendToApp({
+              jsonrpc: '2.0',
+              id: id,
+              result: result,
+          });
+      }
+
+      // ── Visualization Data ──
+      //
+      // MCP UI notification flow:
+      // 1. tool-input  — signals a tool is being called (shows loading state)
+      // 2. tool-result — sends the actual visualization data
+      //    content:           fallback content blocks (per MCP spec)
+      //    structuredContent: raw payload object (preferred)
+
+      function sendVisualizationData(payload) {
+          debug('sendVisualizationData:', payload);
+
+          sendNotification('ui/notifications/tool-result', {
+              toolName: 'visualize_data',
+              content: [{ type: 'text', text: JSON.stringify(payload) }],
+              structuredContent: payload,
+          });
+      }
+
+      /// Set of tool_use_ids for which we already received a PostToolUse.
+      /// Because hooks are async, the first PreToolUse (which spawns ddviz) can
+      /// arrive *after* its PostToolUse. Tracking completed IDs lets us drop
+      /// stale PreToolUse "loading" messages that would overwrite rendered data.
+      const completedToolUseIds = new Set();
+
+      /// Single entry point for all IPC messages from the native host.
+      /// Handles two hook wire formats, both fire-and-forget via forward.sh:
+      ///   - Claude Code hooks (snake_case): hook_event_name, tool_name, tool_response
+      ///   - bits-cli hooks (camelCase):     type, toolName, structuredContent
+      function handleHookPayload(payload) {
+          // Normalize: detect which format we received.
+          // Claude Code uses hook_event_name; bits-cli uses type.
+          const eventType = payload.hook_event_name || payload.type;
+          const toolName = payload.tool_name || payload.toolName || 'visualize_data';
+          const toolUseId = payload.tool_use_id || payload.toolUseId;
+          debug('handleHookPayload:', eventType, toolName, toolUseId || '(no id)');
+          if (eventType === 'PreToolUse') {
+              // Drop stale PreToolUse if its PostToolUse already arrived.
+              if (completedToolUseIds.has(toolUseId)) {
+                  completedToolUseIds.delete(toolUseId);
+              } else {
+                  sendNotification('ui/notifications/tool-input', {
+                      toolName: toolName,
+                  });
+              }
+          } else if (eventType === 'PostToolUse') {
+              if (toolUseId) {
+                  completedToolUseIds.add(toolUseId);
+              }
+              // Claude Code: tool_response (string or object)
+              // bits-cli:    structuredContent (object)
+              const response = payload.tool_response || payload.structuredContent;
+              if (response) {
+                  const parsed = typeof response === 'string' ? JSON.parse(response) : response;
+                  sendVisualizationData(parsed);
+                  sendToNative(NativeMessageType.REVEAL);
+              }
+          }
+      }
+
+      // ── Message Handling ──
+
+      function handleMessage(event) {
+          if (event.source !== frame.contentWindow) return;
+          if (event.origin !== frameOrigin) return;
+
+          const msg = event.data;
+          if (!msg || msg.jsonrpc !== '2.0') {
+              return;
+          }
+
+          debug('Received:', msg.method || 'response');
+          if (msg.method) {
+              handleAppMessage(msg);
+          }
+      }
+
+      function shutdown(reason) {
+          debugError('Shutdown:', reason);
+          sendToNative(NativeMessageType.SHUTDOWN, { reason });
+      }
+
+      function handleAppMessage(msg) {
+          const { id, method, params } = msg;
+
+          switch (method) {
+              case 'ui/initialize':
+                  sendResponse(id, {
+                      protocolVersion: PROTOCOL_VERSION,
+                      hostCapabilities: {
+                          // serverTools: {},        — not yet supported
+                          // updateModelContext: {}, — not yet supported
+                          openLinks: {},
+                      },
+                      hostInfo: {
+                          name: '{{HOST_NAME}}',
+                          version: '{{HOST_VERSION}}',
+                      },
+                      hostContext: getHostContext(),
+                  });
+                  break;
+
+              case 'ui/update-model-context':
+                  sendResponse(id, {});
+                  break;
+
+              case 'ui/request-display-mode':
+                  if (params && params.mode) {
+                      sendToNative(NativeMessageType.REQUEST_DISPLAY_MODE, { mode: params.mode });
+                      displayMode = params.mode;
+                  }
+                  sendResponse(id, { mode: displayMode });
+                  break;
+
+              case 'ui/open-link':
+                  if (params && params.url) {
+                      debug('Opening link:', params.url);
+                      sendToNative(NativeMessageType.OPEN_LINK, { url: params.url });
+                  }
+                  sendResponse(id, {});
+                  break;
+
+              case 'ui/notifications/initialized':
+                  if (!isInitialized) {
+                      isInitialized = true;
+                      document.querySelector('.iframe-container').classList.add('visible');
+                      sendToNative(NativeMessageType.INITIALIZED, {});
+                  }
+                  break;
+
+              case 'ui/notifications/size-changed':
+                  if (params) {
+                      debug('App size:', params.width, 'x', params.height);
+                      sendToNative(NativeMessageType.SIZE_CHANGED, {
+                          width: params.width,
+                          height: params.height,
+                      });
+                  }
+                  break;
+
+              default:
+                  debug('Unhandled method:', method);
+          }
+      }
+
+      // ── Initialization ──
+
+      window.addEventListener('message', handleMessage);
+      debug('MCP Host initialized');
+
+      const INIT_TIMEOUT_MS = 5000;
+      frame.addEventListener('error', () => {
+          shutdown('Failed to load MCP app: ' + frame.src);
+      });
+      setTimeout(() => {
+          if (!isInitialized) {
+              shutdown('MCP app did not initialize within ' + INIT_TIMEOUT_MS + 'ms (' + frame.src + ')');
+          }
+      }, INIT_TIMEOUT_MS);
+
+      const resizeObserver = new ResizeObserver(() => {
+          if (isInitialized) {
+              debug('Container resized:', frame.clientWidth, 'x', frame.clientHeight);
+              sendNotification('ui/notifications/host-context-changed', getHostContext());
+          }
+      });
+      resizeObserver.observe(frame);
+    </script>
+  </body>
+</html>
