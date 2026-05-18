@@ -1,7 +1,7 @@
 **This feature preview of the overlay visualization**
 
 > [!IMPORTANT]
-> This is a preview of the overlay visualization feature. This is not the stable version of the Datadog Claude Code plugin. Contact us if you're interesting in feature testing this new plugin.
+> This is a preview of the overlay visualization feature. This is not the stable version of the Datadog Claude Code plugin. Contact us if you're interested in feature testing this new plugin.
 
 # Datadog Claude Code Plugin
 
@@ -16,6 +16,16 @@ Query your Datadog data directly from Claude Code using natural language. Ask ab
 
 > If you already have the Datadog MCP server registered separately (e.g., in `.claude/mcp.json`), disable or remove it first to avoid conflicts. Run `/mcp` in Claude Code, then restart Claude Code.
 
+> [!IMPORTANT]
+> If you are participating in the preview, please run these commands instead of installing from the official marketplace
+
+```
+/plugin marketplace add datadog-labs/claude-code-plugin#preview-ddviz
+/plugin install datadog@datadog-claude-code-preview-ddviz
+/ddsetup
+/mcp
+```
+
 Start Claude Code, install the plugin from the official marketplace:
 
 ```
@@ -24,7 +34,7 @@ Start Claude Code, install the plugin from the official marketplace:
 
 > Auto-updates: Enable auto-update so Claude Code notifies when an update is available. Run /plugin, select the Marketplaces tab, select claude-plugins-official, then select Enable auto-update.
 
-Before you can start querying your Datadog data, you’ll need to connect the plugin to Datadog using your account. The setup process will guide you in selecting the correct Datadog MCP domain. After setup, follow the instructions shown in Claude Code.
+Before you can start querying Datadog data, you’ll need to connect the plugin to your Datadog account. The setup process will guide you in selecting the correct Datadog MCP domain. After setup, follow the instructions shown in Claude Code.
 
 > You can manually trigger setup by running the `/ddsetup` command.
 
