@@ -5,7 +5,7 @@ allowed-tools: Read
 license: Apache-2.0
 metadata:
   author: Datadog
-  version: "0.7.15-preview.ddviz"
+  version: "0.7.16-preview.ddviz"
 ---
 
 ## Datadog MCP Server

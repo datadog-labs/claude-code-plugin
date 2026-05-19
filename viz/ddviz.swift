@@ -26,6 +26,7 @@ let SOCKET_PATH = URL(fileURLWithPath: DDVIZ_DATA_DIR).appendingPathComponent(SO
 let JS_HANDLER_NAME = "nativeBridge"
 let IPC_MAX_MESSAGE_BYTES = 256 * 1024 * 1024
 
+let HOST_BASE_URL = URL(string: "https://ddviz.localhost")!
 let DEFAULT_FRAME_SRC = "https://static.datadoghq.com/mcp-apps/dataviz-mcp-ui/index.html"
 let TRUSTED_DOMAIN_SUFFIXES = [".datadoghq.com", ".ddog-gov.com", ".datadoghq.eu"]
 
@@ -564,7 +565,7 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
       webView.isInspectable = DEBUG
     }
 
-    webView.loadHTMLString(mcpHostHTML, baseURL: nil)
+    webView.loadHTMLString(mcpHostHTML, baseURL: HOST_BASE_URL)
 
     // Use the default contentView as a container for rounding, border,
     // web view, drag handle, and close button.
@@ -852,7 +853,7 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
       return
     }
 
-    if url.absoluteString == "about:blank" {
+    if (url.scheme == HOST_BASE_URL.scheme && url.host == HOST_BASE_URL.host) {
       decisionHandler(.allow)
     } else if !isTrustedURL(url) {
       decisionHandler(.cancel)
