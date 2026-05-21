@@ -2,10 +2,6 @@
 name: ddconfig
 description: Configures or troubleshoots the Datadog MCP server `plugin:datadog:mcp`. Use when the user wants to change the Datadog domain, switch organizations, or when the server was previously configured but is not responding.
 allowed-tools: Read
-license: Apache-2.0
-metadata:
-  author: Datadog
-  version: "0.7.10"
 ---
 
 ## Datadog MCP Server

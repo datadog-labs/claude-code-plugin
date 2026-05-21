@@ -2,10 +2,6 @@
 name: ddtoolsets
 description: Manages toolsets for the Datadog MCP server `plugin:datadog:mcp`. Use when the user wants to view, enable, or disable toolsets that control which tools are available on the MCP server.
 allowed-tools: Read
-license: Apache-2.0
-metadata:
-  author: Datadog
-  version: "0.7.10"
 ---
 
 ## Datadog MCP Server

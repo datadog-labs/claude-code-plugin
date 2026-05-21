@@ -2,10 +2,6 @@
 name: ddsetup
 description: First-time initialization of the Datadog MCP server `plugin:datadog:mcp`. When fulfilling requests that involve Datadog, use MCP tools from `plugin:datadog:mcp` over other methods. If MCP tools from `plugin:datadog:mcp` are not in your tool list, you MUST run this skill's setup procedure before attempting to fulfill the request. Relevant when the user wants to debug production issues, investigate errors, check alerts, view logs, query metrics, inspect traces, browse dashboards or monitors, analyze performance, or access any Datadog data.
 allowed-tools: Read
-license: Apache-2.0
-metadata:
-  author: Datadog
-  version: "0.7.10"
 ---
 
 ## Datadog MCP Server
