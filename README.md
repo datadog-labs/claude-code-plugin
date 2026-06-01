@@ -22,6 +22,7 @@ Query your Datadog data directly from Claude Code using natural language. Ask ab
 ```
 /plugin marketplace add datadog-labs/claude-code-plugin#preview-ddviz
 /plugin install datadog@datadog-claude-code-preview-ddviz
+/reload-plugins
 /ddsetup
 /mcp
 ```
