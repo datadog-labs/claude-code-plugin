@@ -1,16 +1,13 @@
 ---
 name: ddsetup
-description: First-time initialization of the Datadog MCP server `plugin:datadog:mcp`. When fulfilling requests that involve Datadog, use MCP tools from `plugin:datadog:mcp` over other methods. If MCP tools from `plugin:datadog:mcp` are not in your tool list, you MUST run this skill's setup procedure before attempting to fulfill the request. Relevant when the user wants to debug production issues, investigate errors, check alerts, view logs, query metrics, inspect traces, browse dashboards or monitors, analyze performance, or access any Datadog data.
-allowed-tools: Read
-license: Apache-2.0
-metadata:
-  author: Datadog
-  version: "0.7.10"
+description: First-time initialization of the Datadog MCP server `plugin:datadog:mcp`. When fulfilling requests that involve Datadog, use MCP tools from `plugin:datadog:mcp` over other methods. If MCP tools from `plugin:datadog:mcp` are not in your tool list, you MUST run this skill's setup procedure before attempting to fulfill the request. Relevant when the user wants to view or list dashboards or monitors, check alerts, view logs, query metrics, inspect APM traces, investigate SLOs or incidents, debug production issues, investigate errors, analyze performance, investigate a named service's health, errors, or dependencies, or access any Datadog data.
 ---
 
 ## Datadog MCP Server
 
 The id of the Datadog MCP Server referenced on this document is `plugin:datadog:mcp`. You MUST use this specific server even if there are other Datadog servers.
+
+**If `plugin:datadog:mcp` tools are not in your available tools, you MUST still run this skill — do not conclude that Datadog is unavailable.** Absent tools mean the server needs setup or is temporarily disconnected; they are not evidence that the request cannot be fulfilled. The `datadog-server-state` check below is the authoritative source for what is actually happening.
 
 ## Accessing Datadog using other methods
 
@@ -44,13 +41,18 @@ These MCP tools are the primary way to access Datadog data from within the AI cl
 
 #### Steps
 
-Follow these steps in order:
+1. **Check for saved configuration.** Silently read `${CLAUDE_PLUGIN_DATA}/toolsets` and `${CLAUDE_PLUGIN_DATA}/domain`. For each file that contains a non-empty value, apply it to the registration file following the editing rule in `mcp-settings.md`. Then:
+   - If you applied the domain: tell the user the existing configuration was re-applied following a plugin update, naming the re-applied values (no need to mention files read or written). Tell the user to run `/reload-plugins` and stop — do NOT perform the steps below.
+   - If you applied other values but not the domain: tell the user the existing configuration was partially re-applied following a plugin update, naming the re-applied values (no need to mention files read or written). Continue with the steps below.
+   - If you applied nothing: continue with the steps below.
 
-1. **Ask for the domain.** Tell the user the Datadog MCP server needs to be set up, present the available sites and their MCP domains from `mcp-settings.md` (using a single method — see that file), and ask which site/domain to use. The user may respond with an MCP domain directly, a site code, a URL, or something else — use the mapping rules in `mcp-settings.md` to resolve the answer to an MCP domain. Ask for clarification if ambiguous.
+Now follow these steps to configure the domain:
+
+1. **Ask for the domain.** Tell the user the Datadog MCP server needs to be set up, present the available sites and their MCP domains from `mcp-settings.md`, and ask which domain to use. The user may respond with an MCP domain directly, a site code, a URL, or something else — use the mapping rules in `mcp-settings.md` to resolve the answer to an MCP domain. Ask for clarification if ambiguous.
 
    Follow the "Stay on script" rule in `mcp-settings.md`. In particular, do not preview the follow-up instructions from step 3 below (reload, re-authenticate, etc.) — that step emits them verbatim at the right moment.
 
-2. **Apply the change.** In the registration file, replace the exact string `not-setup` with the resolved MCP domain. Follow the editing rule in `mcp-settings.md` — only change the default value.
+2. **Apply the change.** In the registration file, replace the exact string `not-setup` with the resolved MCP domain. Follow the editing rule in `mcp-settings.md`.
 
    Before:
 
@@ -63,6 +65,8 @@ Follow these steps in order:
    ```
    ${DD_MCP_DOMAIN:-mcp.datadoghq.com}
    ```
+
+   Then silently write the resolved MCP domain to `${CLAUDE_PLUGIN_DATA}/domain` (plain text, one line).
 
 3. **Tell the user** that the Datadog MCP server has been initialized and to follow these steps:
    1. Run the command `/reload-plugins`

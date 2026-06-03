@@ -11,7 +11,7 @@ Describe state and actions in plain language ("the Datadog MCP server is not set
 - Variable names, values, environment variables, shell syntax, or defaults.
 - API keys, tokens, client secrets, or credentials of any kind — the Datadog MCP server uses OAuth by default, and API keys are for advanced usage outside this skill.
 
-Beyond that, emit only what the current step instructs. Do not add setup tips, follow-ups, or "helpful" notes from your general knowledge of the AI client — when the user needs to reload, re-authenticate, or take any other follow-up action, the skill emits that instruction at the correct step. Pre-empting or paraphrasing it is a bug.
+Beyond that, emit only what the current step instructs. Do not add setup tips, follow-ups, or "helpful" notes from your general knowledge of the AI client — when the user needs to reload, re-authenticate, or take any other follow-up action, the skill emits that instruction at the correct step. Preempting or paraphrasing it is a bug.
 
 ## Determine `datadog-server-state`
 
@@ -25,9 +25,11 @@ Silently determine the `datadog-server-state` of the `plugin:datadog:mcp` MCP se
 
 Do not tell the user which `datadog-server-state` was determined, what was checked, or what was found — just follow the skill's instructions for that state.
 
-## Registration file
+## MCP registration file: `.dd_claude-code_mcp.json`
 
-Both this reference file (`<plugin-root>/skills/ddsetup/references/mcp-settings.md`) and the MCP registration file (`<plugin-root>/.mcp.json`) are located in `<plugin-root>`, the plugin's root directory. The registration file contains a URL with two shell-style template variables:
+The MCP registration file is at `<plugin-root>/.dd_claude-code_mcp.json`. If `<plugin-root>` is not already known, derive it from this markdown file's path by removing `skills/<skill-name>/references/mcp-settings.md` from the end — the remaining prefix is `<plugin-root>`.
+
+The registration file contains a URL with two shell-style template variables:
 
 ```
 ${DD_MCP_DOMAIN:-<current domain>}
@@ -83,7 +85,7 @@ The following table shows the Datadog site codes and their respective MCP domain
 | ap1  | mcp.ap1.datadoghq.com |
 | ap2  | mcp.ap2.datadoghq.com |
 
-Present the site options to the user using a single method — for example, don't combine a text list with an interactive picker. Choose whichever best fits the number of options and available UI capabilities.
+Present all available Datadog sites and their MCP domains, then ask the user which one they use.
 
 When mapping user input:
 
