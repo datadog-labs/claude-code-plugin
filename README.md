@@ -7,7 +7,7 @@ Query your Datadog data directly from Claude Code using natural language. Ask ab
 ## What you need
 
 - A [Datadog](https://www.datadoghq.com/) account
-- [Claude Code](https://code.claude.com/docs) IDE (v2.1.20+)
+- [Claude Code](https://code.claude.com/docs) (v2.1.30+)
 
 ## Getting started
 

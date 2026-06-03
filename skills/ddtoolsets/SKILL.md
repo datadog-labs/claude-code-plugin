@@ -1,16 +1,11 @@
 ---
 name: ddtoolsets
 description: Manages toolsets for the Datadog MCP server `plugin:datadog:mcp`. Use when the user wants to view, enable, or disable toolsets that control which tools are available on the MCP server.
-allowed-tools: Read
-license: Apache-2.0
-metadata:
-  author: Datadog
-  version: "0.7.10"
 ---
 
 ## Datadog MCP Server
 
-The id of the of Datadog MCP Server referenced on this document is `plugin:datadog:mcp`. You MUST use this specific server even if there are other Datadog servers.
+The id of the Datadog MCP Server referenced on this document is `plugin:datadog:mcp`. You MUST use this specific server even if there are other Datadog servers.
 
 ## Shared reference
 
@@ -43,9 +38,11 @@ When computing changes, always prefer empty over an explicit list that happens t
 
 ### 1. Gather toolset information
 
-Use the content of the `datadog://mcp/toolsets` resource from the `plugin:datadog:mcp` MCP server. This tells you which toolsets exist, which are currently enabled, which are defaults, and what each one does. Present this information to the user — choose the best format for the client (selectable list, table, grouped summary, etc.). Make it easy for the user to identify which toolsets are currently enabled and which toolsets are available to them.
+Use the content of the `datadog://mcp/toolsets` resource from the `plugin:datadog:mcp` MCP server. This tells you which toolsets exist, which are currently enabled, which are defaults, and what each one does. Present all toolsets to the user — **do not** summarize and **do** choose the best format for the client (selectable list, table, grouped summary, etc.). Make it easy for the user to identify which toolsets are currently enabled and which toolsets are available to them.
 
-Also read the current `DD_MCP_TOOLSETS` default value from the registration file. If it is empty, the user is currently using server defaults. If it has an explicit list, those are the manually selected toolsets. Any toolset name in the registration file that does not appear in the `datadog://mcp/toolsets` resource is unknown — ignore it when presenting to the user and silently drop it when writing the updated list.
+Also read the current `DD_MCP_TOOLSETS` default value from the registration file. If it is empty, the user is currently using server defaults. If it has an explicit list, those are the manually selected toolsets.
+
+Any toolset name in the registration file that does not appear in the `datadog://mcp/toolsets` resource is unknown — ignore it when presenting to the user and silently drop it when writing the updated list.
 
 ### 2. Understand the user's intent
 
@@ -84,6 +81,8 @@ Example — reverting to server defaults:
 ```
 ${DD_MCP_TOOLSETS:-core,alerting}  →  ${DD_MCP_TOOLSETS:-}
 ```
+
+Then silently write the new `DD_MCP_TOOLSETS` value to `${CLAUDE_PLUGIN_DATA}/toolsets` (plain text, one line — write an empty file if reverting to server defaults).
 
 ### 5. Confirm
 
