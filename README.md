@@ -58,6 +58,16 @@ The plugin provides a few commands you can run in the agent to manage configurat
 - `/ddconfig` — change your Datadog site or switch organizations
 - `/ddtoolsets` — enable or disable groups of tools
 
+## Using multiple organizations
+
+The plugin can connect to **two Datadog organizations at the same time**. Each organization is backed by a separate MCP server with its own sign-in session, so you don't have to re-authenticate to switch between them — both are available at once.
+
+- Set up your first organization normally with `/ddsetup`.
+- Add a second organization by running `/ddsetup` again and telling it you want to add another organization. It will configure the second slot and walk you through authenticating it.
+- Use `/ddconfig` to view both connections, switch the domain/organization of either one, or troubleshoot. Use `/ddtoolsets` to manage each organization's tools independently. When more than one organization is configured, these commands ask which one you mean.
+
+The two organizations may live on the same Datadog site or on different sites — the organization is chosen during browser sign-in, not by the domain. The second organization is entirely optional; if you never add one, the plugin behaves exactly as a single-org setup.
+
 ## Advanced usage
 
 ### Key authentication
@@ -79,6 +89,8 @@ The plugin uses environment variables with default values in its registration fi
 
 - `DD_MCP_DOMAIN` — overrides the Datadog MCP domain. If set, the plugin uses this value regardless of what `/ddsetup` or `/ddconfig` configured. Useful for non-standard environments or key authentication.
 - `DD_MCP_TOOLSETS` — overrides the enabled toolsets (comma-separated). If set, the plugin uses this value regardless of what `/ddtoolsets` configured.
+
+For the second organization (see [Using multiple organizations](#using-multiple-organizations)), the same variables are available with a `_2` suffix: `DD_MCP_DOMAIN_2`, `DD_MCP_TOOLSETS_2`, and for key authentication `DD_API_KEY_2` / `DD_APPLICATION_KEY_2`. They configure the second slot exactly as the unsuffixed variables configure the first. Leaving them unset keeps the second slot inactive.
 
 When environment variables are set, `/ddsetup`, `/ddconfig`, and `/ddtoolsets` still edit the default values in the registration file, but those defaults won't take effect until the environment variables are removed.
 

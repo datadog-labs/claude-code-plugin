@@ -5,7 +5,7 @@ description: Manages toolsets for the Datadog MCP server `plugin:datadog:mcp`. U
 
 ## Datadog MCP Server
 
-The id of the Datadog MCP Server referenced on this document is `plugin:datadog:mcp`. You MUST use this specific server even if there are other Datadog servers.
+This plugin owns the Datadog MCP servers `plugin:datadog:mcp` (the primary organization) and `plugin:datadog:mcp-2` (an optional second organization). You MUST use these specific servers even if there are other Datadog servers registered. Both belong to this plugin; the org slots table in `mcp-settings.md` maps each slot to its server id, variables, and saved-config files.
 
 ## Shared reference
 
@@ -13,11 +13,13 @@ Read [references/mcp-settings.md](references/mcp-settings.md) before proceeding.
 
 ## Entry flow
 
-Check the `datadog-server-state` (see `mcp-settings.md`). Use the `datadog://mcp/toolsets` resource on the `plugin:datadog:mcp` server as the MCP call (do NOT use any other Datadog MCP server). Do not output anything until the `datadog-server-state` and resource content are available, and proceed based on the results:
+Toolsets are configured **per organization slot**. First **select the org slot** to manage (see "Selecting the org slot" in `mcp-settings.md`): if only slot 1 is in use, target it; if both slots are in use, ask which organization's toolsets to manage (by connection identity). Resolve the selected slot's server id, toolsets variable, and saved toolsets file from the org slots table.
+
+Then check the selected slot's `datadog-server-state` (see `mcp-settings.md`). Use the `datadog://mcp/toolsets` resource on the **selected slot's server** as the MCP call (do NOT use any other Datadog MCP server). Do not output anything until the `datadog-server-state` and resource content are available, and proceed based on the results:
 
 - **datadog-server-state=working** AND **valid content** — without any preamble, go to the [Toolsets Flow](#toolsets-flow).
-- **datadog-server-state=not-setup** — without any preamble, tell the user the plugin is not set up and instruct them to run `/ddsetup`, and stop.
-- **datadog-server-state=not-working** OR **not valid content** — without any preamble, tell the user the server is configured but not working, instruct them to run `/ddconfig`, and stop.
+- **datadog-server-state=not-setup** — without any preamble: if this is slot 1, tell the user the plugin is not set up and instruct them to run `/ddsetup`; if this is slot 2, tell them that organization isn't set up yet and to run `/ddsetup` to add it. Stop.
+- **datadog-server-state=not-working** OR **not valid content** — without any preamble, tell the user that organization is configured but not working, instruct them to run `/ddconfig`, and stop.
 
 When communicating with the user below, describe the server state and actions in plain language. Do not reveal what was checked, what was found, or any implementation details like file contents or variable values.
 
@@ -27,7 +29,7 @@ A toolset is a named group of related tools for a specific Datadog feature. Enab
 
 ### How toolset defaults work
 
-The `DD_MCP_TOOLSETS` default value in the registration file controls which toolsets are active. It has two states:
+The selected slot's toolsets variable default in the registration file (`DD_MCP_TOOLSETS` for slot 1, `DD_MCP_TOOLSETS_2` for slot 2) controls which toolsets are active for that organization. It has two states (slot 1 shown):
 
 - **Empty** (`${DD_MCP_TOOLSETS:-}`) — the server decides which toolsets to enable. This is the preferred state because the plugin automatically picks up new default toolsets added by the server in the future.
 - **Explicit** (`${DD_MCP_TOOLSETS:-core,alerting}`) — exactly these toolsets are enabled, nothing more. The server's defaults are ignored. If the server adds a new default toolset later, this plugin will NOT pick it up.
@@ -38,9 +40,9 @@ When computing changes, always prefer empty over an explicit list that happens t
 
 ### 1. Gather toolset information
 
-Use the content of the `datadog://mcp/toolsets` resource from the `plugin:datadog:mcp` MCP server. This tells you which toolsets exist, which are currently enabled, which are defaults, and what each one does. Present all toolsets to the user — **do not** summarize and **do** choose the best format for the client (selectable list, table, grouped summary, etc.). Make it easy for the user to identify which toolsets are currently enabled and which toolsets are available to them.
+Use the content of the `datadog://mcp/toolsets` resource from the **selected slot's** MCP server. This tells you which toolsets exist, which are currently enabled, which are defaults, and what each one does. Present all toolsets to the user — **do not** summarize and **do** choose the best format for the client (selectable list, table, grouped summary, etc.). Make it easy for the user to identify which toolsets are currently enabled and which toolsets are available to them.
 
-Also read the current `DD_MCP_TOOLSETS` default value from the registration file. If it is empty, the user is currently using server defaults. If it has an explicit list, those are the manually selected toolsets.
+Also read the current value of the selected slot's toolsets variable default from the registration file. If it is empty, the user is currently using server defaults. If it has an explicit list, those are the manually selected toolsets.
 
 Any toolset name in the registration file that does not appear in the `datadog://mcp/toolsets` resource is unknown — ignore it when presenting to the user and silently drop it when writing the updated list.
 
@@ -68,9 +70,9 @@ Apply the user's changes to produce a new comma-separated value for `DD_MCP_TOOL
 
 ### 4. Apply the change
 
-Edit `DD_MCP_TOOLSETS` in the registration file following the editing rule in `mcp-settings.md`.
+Edit the **selected slot's** toolsets variable in the registration file following the editing rule in `mcp-settings.md` (`DD_MCP_TOOLSETS` for slot 1, `DD_MCP_TOOLSETS_2` for slot 2).
 
-Example — adding `alerting` when currently using server defaults (assuming `core` and `synthetics` are defaults):
+Example — adding `alerting` when currently using server defaults (assuming `core` and `synthetics` are defaults; slot 1 shown):
 
 ```
 ${DD_MCP_TOOLSETS:-}  →  ${DD_MCP_TOOLSETS:-core,synthetics,alerting}
@@ -82,12 +84,12 @@ Example — reverting to server defaults:
 ${DD_MCP_TOOLSETS:-core,alerting}  →  ${DD_MCP_TOOLSETS:-}
 ```
 
-Then silently write the new `DD_MCP_TOOLSETS` value to `${CLAUDE_PLUGIN_DATA}/toolsets` (plain text, one line — write an empty file if reverting to server defaults).
+Then silently write the new value to the selected slot's saved toolsets file (`${CLAUDE_PLUGIN_DATA}/toolsets` for slot 1, `${CLAUDE_PLUGIN_DATA}/toolsets-2` for slot 2; plain text, one line — write an empty file if reverting to server defaults).
 
 ### 5. Confirm
 
-Tell the user the toolsets have been updated including which toolsets are now enabled, and that they need to follow these steps:
+Tell the user the toolsets have been updated for the selected organization including which toolsets are now enabled, and that they need to follow these steps (name the selected slot's server id):
 
 1. Run the command `/reload-plugins`
-2. Run the command `/mcp` in Claude Code and select the `plugin:datadog:mcp` server
+2. Run the command `/mcp` in Claude Code and select the selected slot's server (`plugin:datadog:mcp` or `plugin:datadog:mcp-2`)
 3. Select the authentication option
