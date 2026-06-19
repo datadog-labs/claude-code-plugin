@@ -89,7 +89,7 @@ When environment variables are set, `/ddsetup`, `/ddconfig`, and `/ddtoolsets` s
 
 ## Support
 
-- [Datadog MCP Server Documentation](https://docs.datadoghq.com/bits_ai/mcp_server/)
+- [Datadog MCP Server Documentation](https://docs.datadoghq.com/mcp_server/)
 
 ## Legal
 
