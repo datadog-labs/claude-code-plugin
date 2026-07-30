@@ -58,6 +58,9 @@
       const PROTOCOL_VERSION = '2026-01-26';
 
       const DEBUG = {{DEBUG}};
+      // Bidirectional transport (stdio) gates host capabilities that need a
+      // reply path back to the iframe. Unidirectional (hooks) leaves them off.
+      const BIDIRECTIONAL = {{BIDIRECTIONAL}};
       function debug(...args) {
           if (DEBUG) console.log('[MCP-HOST]', ...args);
       }
@@ -65,29 +68,23 @@
           console.error('[MCP-HOST ERROR]', ...args);
       }
 
-      // ── Native Bridge (JS → Swift via WebKit) ──
-
-      // Must match JsMessage in ddviz.swift.
-      const NativeMessageType = Object.freeze({
-          SIZE_CHANGED: 'size-changed',            // { width, height }
-          REQUEST_DISPLAY_MODE: 'request-display-mode', // { mode }
-          INITIALIZED: 'initialized',
-          OPEN_LINK: 'open-link',                   // { url }
-          REVEAL: 'reveal',
-          SHUTDOWN: 'shutdown',                     // { reason }
-      });
+      // ── Native Bridge ──
+      //
+      // All messages between the host and native (Swift) are JSON-RPC 2.0.
+      // The host forwards iframe messages as-is when possible, and
+      // constructs JSON-RPC notifications for host-originated events
+      // (theme changes, shutdown).
 
       function hasNativeBridge() {
           return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeBridge);
       }
 
-      function sendToNative(type, payload) {
+      function sendToNative(msg) {
           if (!hasNativeBridge()) {
-              debug('Native bridge not available, skipping:', type);
+              debug('sendToNative: bridge not available, skipping');
               return;
           }
-          const msg = { type, payload };
-          debug('sendToNative:', msg);
+          debug('sendToNative:', msg.method || 'response');
           try {
               window.webkit.messageHandlers.nativeBridge.postMessage(JSON.stringify(msg));
           } catch (e) {
@@ -118,7 +115,6 @@
           debug('Display mode changed to:', payload.mode);
           displayMode = payload.mode;
 
-          // Notify the iframe that host context has changed
           if (isInitialized) {
               sendNotification('ui/notifications/host-context-changed', getHostContext());
           }
@@ -137,7 +133,24 @@
       let displayMode = 'inline';
 
       const frame = document.getElementById('app-frame');
-      const frameOrigin = new URL('{{FRAME_SRC}}').origin;
+      // May be redirected by the time the iframe loads, so it is refreshed
+      // from the first trusted message received (see isTrustedOrigin below).
+      let frameOrigin = new URL('{{FRAME_SRC}}').origin;
+
+      const TRUSTED_DOMAIN_SUFFIXES = {{TRUSTED_DOMAIN_SUFFIXES}};
+
+      function isTrustedOrigin(origin) {
+          let url;
+          try {
+              url = new URL(origin);
+          } catch (e) {
+              return false;
+          }
+          if (url.protocol !== 'https:') return false;
+          return TRUSTED_DOMAIN_SUFFIXES.some(
+              (suffix) => url.hostname === suffix.slice(1) || url.hostname.endsWith(suffix)
+          );
+      }
 
       // ── Host Context ──
 
@@ -151,11 +164,17 @@
                   maxHeight: frame.clientHeight,
               },
               userAgent: navigator.userAgent,
+              safeAreaInsets: {
+                top: 0,
+                left: 16,
+                right: 16,
+                bottom: 0
+              },
               platform: 'desktop',
           };
       }
 
-      // ── Message Sending ──
+      // ── Message Sending (host → iframe) ──
 
       function sendToApp(msg) {
           debug('sendToApp:', msg.method || 'response');
@@ -171,113 +190,33 @@
       }
 
       function sendNotification(method, params) {
-          sendToApp({
-              jsonrpc: '2.0',
-              method: method,
-              params: params,
-          });
+          sendToApp({ jsonrpc: '2.0', method, params });
       }
 
       function sendResponse(id, result) {
-          sendToApp({
-              jsonrpc: '2.0',
-              id: id,
-              result: result,
-          });
+          sendToApp({ jsonrpc: '2.0', id, result });
       }
 
-      // ── Visualization Data ──
-      //
-      // MCP UI notification flow:
-      // 1. tool-input  — signals a tool is being called (shows loading state)
-      // 2. tool-result — sends the actual visualization data
-      //    content:           fallback content blocks (per MCP spec)
-      //    structuredContent: raw payload object (preferred)
-
-      function sendVisualizationData(payload) {
-          debug('sendVisualizationData:', payload);
-
-          sendNotification('ui/notifications/tool-result', {
-              toolName: 'visualize_data',
-              content: [{ type: 'text', text: JSON.stringify(payload) }],
-              structuredContent: payload,
-          });
-      }
-
-      /// Set of tool_use_ids for which we already received a PostToolUse.
-      /// Because hooks are async, the first PreToolUse (which spawns ddviz) can
-      /// arrive *after* its PostToolUse. Tracking completed IDs lets us drop
-      /// stale PreToolUse "loading" messages that would overwrite rendered data.
-      const completedToolUseIds = new Set();
-
-      /// Single entry point for all IPC messages from the native host.
-      /// Handles two hook wire formats, both fire-and-forget via forward.sh:
-      ///   - Claude Code hooks (snake_case): hook_event_name, tool_name, tool_response
-      ///   - bits-cli hooks (camelCase):     type, toolName, structuredContent
-      function handleHookPayload(payload) {
-          // Normalize: detect which format we received.
-          // Claude Code uses hook_event_name; bits-cli uses type.
-          const eventType = payload.hook_event_name || payload.type;
-          const toolName = payload.tool_name || payload.toolName || 'visualize_data';
-          const toolUseId = payload.tool_use_id || payload.toolUseId;
-          debug('handleHookPayload:', eventType, toolName, toolUseId || '(no id)');
-          if (eventType === 'PreToolUse') {
-              // Drop stale PreToolUse if its PostToolUse already arrived.
-              if (completedToolUseIds.has(toolUseId)) {
-                  completedToolUseIds.delete(toolUseId);
-              } else {
-                  sendNotification('ui/notifications/tool-input', {
-                      toolName: toolName,
-                  });
-              }
-          } else if (eventType === 'PostToolUse') {
-              if (toolUseId) {
-                  completedToolUseIds.add(toolUseId);
-              }
-              // Claude Code: tool_response (string or object)
-              // bits-cli:    structuredContent (object)
-              const response = payload.tool_response || payload.structuredContent;
-              if (response) {
-                  const parsed = typeof response === 'string' ? JSON.parse(response) : response;
-                  sendVisualizationData(parsed);
-                  sendToNative(NativeMessageType.REVEAL);
-              }
-          }
-      }
-
-      // ── Message Handling ──
+      // ── Message Handling (iframe → host) ──
 
       function handleMessage(event) {
           if (event.source !== frame.contentWindow) return;
-          if (event.origin !== frameOrigin) return;
+          if (!isTrustedOrigin(event.origin)) return;
+          frameOrigin = event.origin;
 
           const msg = event.data;
-          if (!msg || msg.jsonrpc !== '2.0') {
-              return;
-          }
+          if (!msg || msg.jsonrpc !== '2.0') return;
 
-          debug('Received:', msg.method || 'response');
-          if (msg.method) {
-              handleAppMessage(msg);
-          }
-      }
-
-      function shutdown(reason) {
-          debugError('Shutdown:', reason);
-          sendToNative(NativeMessageType.SHUTDOWN, { reason });
-      }
-
-      function handleAppMessage(msg) {
           const { id, method, params } = msg;
-
           switch (method) {
+              // ── Handled locally by the host ──
+
               case 'ui/initialize':
                   sendResponse(id, {
                       protocolVersion: PROTOCOL_VERSION,
                       hostCapabilities: {
-                          // serverTools: {},        — not yet supported
-                          // updateModelContext: {}, — not yet supported
                           openLinks: {},
+                          ...(BIDIRECTIONAL ? { serverTools: {}, updateModelContext: {} } : {}),
                       },
                       hostInfo: {
                           name: '{{HOST_NAME}}',
@@ -285,49 +224,36 @@
                       },
                       hostContext: getHostContext(),
                   });
-                  break;
+                  return;
 
-              case 'ui/update-model-context':
-                  sendResponse(id, {});
-                  break;
-
-              case 'ui/request-display-mode':
-                  if (params && params.mode) {
-                      sendToNative(NativeMessageType.REQUEST_DISPLAY_MODE, { mode: params.mode });
-                      displayMode = params.mode;
-                  }
-                  sendResponse(id, { mode: displayMode });
-                  break;
-
-              case 'ui/open-link':
-                  if (params && params.url) {
-                      debug('Opening link:', params.url);
-                      sendToNative(NativeMessageType.OPEN_LINK, { url: params.url });
-                  }
-                  sendResponse(id, {});
-                  break;
+              // ── Handled locally + forwarded to native ──
 
               case 'ui/notifications/initialized':
                   if (!isInitialized) {
                       isInitialized = true;
                       document.querySelector('.iframe-container').classList.add('visible');
-                      sendToNative(NativeMessageType.INITIALIZED, {});
                   }
                   break;
 
-              case 'ui/notifications/size-changed':
-                  if (params) {
-                      debug('App size:', params.width, 'x', params.height);
-                      sendToNative(NativeMessageType.SIZE_CHANGED, {
-                          width: params.width,
-                          height: params.height,
-                      });
+              case 'ui/request-display-mode':
+                  if (params && params.mode) {
+                      displayMode = params.mode;
                   }
+                  sendResponse(id, { mode: displayMode });
                   break;
-
-              default:
-                  debug('Unhandled method:', method);
           }
+
+          // Forward the original JSON-RPC message to native as-is.
+          sendToNative(msg);
+      }
+
+      function shutdown(reason) {
+          debugError('Shutdown:', reason);
+          sendToNative({
+            jsonrpc: '2.0',
+            method: 'ui/shutdown',
+            params: { reason }
+          });
       }
 
       // ── Initialization ──

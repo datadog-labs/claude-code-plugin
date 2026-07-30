@@ -1,16 +1,11 @@
 ---
 name: ddtoolsets
-description: Manages toolsets for the Datadog MCP server `plugin:datadog:mcp`. Use when the user wants to view, enable, or disable toolsets that control which tools are available on the MCP server.
-allowed-tools: Read
-license: Apache-2.0
-metadata:
-  author: Datadog
-  version: "0.7.16-preview.ddviz"
+description: Manages toolsets for the plugin's Datadog MCP server. Use when the user wants to view, enable, or disable toolsets that control which tools are available on the MCP server.
 ---
 
 ## Datadog MCP Server
 
-The id of the of Datadog MCP Server referenced on this document is `plugin:datadog:mcp`. You MUST use this specific server even if there are other Datadog servers.
+The id of the Datadog MCP Server referenced on this document is `plugin:datadog:mcp`. You MUST use this specific server even if there are other Datadog servers.
 
 ## Shared reference
 
@@ -18,7 +13,7 @@ Read [references/mcp-settings.md](references/mcp-settings.md) before proceeding.
 
 ## Entry flow
 
-Check the `datadog-server-state` (see `mcp-settings.md`). Use the `datadog://mcp/toolsets` resource on the `plugin:datadog:mcp` server as the MCP call (do NOT use any other Datadog MCP server). Do not output anything until the `datadog-server-state` and resource content are available, and proceed based on the results:
+Check the `datadog-server-state` (see `mcp-settings.md`). Use the `datadog://mcp/toolsets` resource on the plugin's Datadog MCP server as the MCP call (do NOT use any other Datadog MCP server). Do not output anything until the `datadog-server-state` and resource content are available, and proceed based on the results:
 
 - **datadog-server-state=working** AND **valid content** — without any preamble, go to the [Toolsets Flow](#toolsets-flow).
 - **datadog-server-state=not-setup** — without any preamble, tell the user the plugin is not set up and instruct them to run `/ddsetup`, and stop.
@@ -29,6 +24,17 @@ When communicating with the user below, describe the server state and actions in
 ## Toolsets Flow
 
 A toolset is a named group of related tools for a specific Datadog feature. Enabling a toolset makes its tools available; disabling it removes them.
+
+### Toolset aliases
+
+A toolset alias is a name that stands in for a fixed set of toolsets (its `expandsTo` list) — e.g. a toolset alias might expand to `logs,metrics,traces`. Toolset aliases come from the same `datadog://mcp/toolsets` resource as individual toolsets, each carrying its own `expandsTo` set of toolset names.
+
+The server accepts a toolset alias name anywhere it accepts a toolset name — enabling a toolset alias enables every toolset in its `expandsTo` set, exactly as if they had been listed individually. This works in both directions:
+
+- **Expand** — the user names a toolset alias to enable/disable/replace with; treat it as shorthand for every toolset in its `expandsTo` set.
+- **Collapse** — if the resulting explicit list happens to contain every toolset in a toolset alias's `expandsTo` set, write the toolset alias name in place of those toolsets instead of listing them individually.
+
+Toolset aliases are a convenience, not a separate capability — a toolset alias never grants a tool that isn't already covered by the toolsets it expands to.
 
 ### How toolset defaults work
 
@@ -43,9 +49,13 @@ When computing changes, always prefer empty over an explicit list that happens t
 
 ### 1. Gather toolset information
 
-Use the content of the `datadog://mcp/toolsets` resource from the `plugin:datadog:mcp` MCP server. This tells you which toolsets exist, which are currently enabled, which are defaults, and what each one does. Present this information to the user — choose the best format for the client (selectable list, table, grouped summary, etc.). Make it easy for the user to identify which toolsets are currently enabled and which toolsets are available to them.
+Use the content of the `datadog://mcp/toolsets` resource from the plugin's Datadog MCP server. This tells you which toolsets exist, which are currently enabled, which are defaults, what each one does, and which toolset aliases are available (each with its `expandsTo` set of toolset names). Present all toolsets **and** toolset aliases that are available to the user — **do not** summarize and **do** choose the best format for the client (selectable list, table, grouped summary, etc.). Make it easy for the user to identify which toolsets are currently enabled and which toolsets and toolset aliases are available to them.
 
-Also read the current `DD_MCP_TOOLSETS` default value from the registration file. If it is empty, the user is currently using server defaults. If it has an explicit list, those are the manually selected toolsets. Any toolset name in the registration file that does not appear in the `datadog://mcp/toolsets` resource is unknown — ignore it when presenting to the user and silently drop it when writing the updated list.
+A toolset alias shows as currently enabled when every toolset in its `expandsTo` set is currently enabled.
+
+Also read the current `DD_MCP_TOOLSETS` default value from the registration file. If it is empty, the user is currently using server defaults. If it has an explicit list, those are the manually selected toolsets.
+
+Any toolset name in the registration file that does not appear in the `datadog://mcp/toolsets` resource is unknown — ignore it when presenting to the user and silently drop it when writing the updated list.
 
 ### 2. Understand the user's intent
 
@@ -57,14 +67,18 @@ The user may want to:
 
 Understand the user's intent from their response. Ask for clarification if ambiguous.
 
+The user may refer to a toolset by its individual name or by a toolset alias name. Treat a toolset alias reference as shorthand for every toolset in its `expandsTo` set.
+
 **Important:** If the current default value is empty (server defaults) and the user wants to add a toolset, you need to know what the defaults ARE so you can build the full list. Use the default information from the `datadog://mcp/toolsets` resource.
 
 ### 3. Compute the new toolset list
 
 Apply the user's changes to produce a new comma-separated value for `DD_MCP_TOOLSETS`:
 
+- First, expand any toolset alias names found in the current toolset list (from the registration file) and any toolset alias the user named (to add, remove, or as part of a replacement list) into their `expandsTo` sets of toolset names, then apply the add/remove/replace against that expanded set.
 - If the resulting list matches the default toolsets exactly → use an empty string (revert to server defaults).
 - If the user wants to revert to defaults (e.g. "reset", "use defaults") → use an empty string.
+- If the resulting list contains every item in a toolset alias's `expandsTo` set → replace those items with the toolset alias name. If more than one toolset alias is fully covered, prefer the toolset alias that covers the most toolsets first, then repeat for whatever toolsets remain.
 - If all toolsets would be removed → use an empty string and warn the user that the server's default toolsets will be used instead.
 - If the resulting explicit list does not include `core` → warn the user before applying. The `core` toolset provides essential Datadog functionality and most workflows depend on it. Only proceed without `core` if the user explicitly confirms.
 - Otherwise → use the explicit comma-separated list.
@@ -84,6 +98,8 @@ Example — reverting to server defaults:
 ```
 ${DD_MCP_TOOLSETS:-core,alerting}  →  ${DD_MCP_TOOLSETS:-}
 ```
+
+Then silently write the new `DD_MCP_TOOLSETS` value to `${CLAUDE_PLUGIN_DATA}/toolsets` (plain text, one line — write an empty file if reverting to server defaults).
 
 ### 5. Confirm
 

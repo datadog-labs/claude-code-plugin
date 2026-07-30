@@ -1,7 +1,4 @@
-**This feature preview of the overlay visualization**
-
-> [!IMPORTANT]
-> This is a preview of the overlay visualization feature. This is not the stable version of the Datadog Claude Code plugin. Contact us if you're interested in feature testing this new plugin.
+**This plugin is currently in Preview.**
 
 # Datadog Claude Code Plugin
 
@@ -10,7 +7,7 @@ Query your Datadog data directly from Claude Code using natural language. Ask ab
 ## What you need
 
 - A [Datadog](https://www.datadoghq.com/) account
-- [Claude Code](https://code.claude.com/docs) IDE (v2.1.20+)
+- [Claude Code](https://code.claude.com/docs) (v2.1.30+)
 
 ## Getting started
 
@@ -34,7 +31,7 @@ Start Claude Code, install the plugin from the official marketplace:
 
 > Auto-updates: Enable auto-update so Claude Code notifies when an update is available. Run /plugin, select the Marketplaces tab, select claude-plugins-official, then select Enable auto-update.
 
-Before you can start querying Datadog data, you’ll need to connect the plugin to your Datadog account. The setup process will guide you in selecting the correct Datadog MCP domain. After setup, follow the instructions shown in Claude Code.
+Before you can start querying your Datadog data, you’ll need to connect the plugin to Datadog using your account. The setup process will guide you in selecting the correct Datadog MCP domain. After setup, follow the instructions shown in Claude Code.
 
 > You can manually trigger setup by running the `/ddsetup` command.
 
@@ -43,7 +40,7 @@ Before you can start querying Datadog data, you’ll need to connect the plugin 
 Once connected, just ask the agent anything about your Datadog data:
 
 ```
-Show me error logs from the last hour
+Show me error logs for the "checkout" service from the last hour
 ```
 
 ```
@@ -70,6 +67,7 @@ The plugin provides a few commands you can run in the agent to manage configurat
 
 - `/ddconfig` — change your Datadog site or switch organizations
 - `/ddtoolsets` — enable or disable groups of tools
+- `/ddviz` — enable, disable, or check the status of the visualization panel
 
 ## Advanced usage
 
@@ -99,10 +97,12 @@ When environment variables are set, `/ddsetup`, `/ddconfig`, and `/ddtoolsets` s
 
 - By default, authentication is handled via OAuth in your browser. Key authentication is also [supported](#key-authentication).
 - No Datadog credentials are sent to the AI model provider.
+- On macOS, visualization tool results can render in a native side panel. Run `/ddviz` to enable, disable, or check its status. Disabling applies to every Claude Code install sharing the default data directory (a dev build with `DDVIZ_DATA_DIR` set is controlled separately).
+- When the panel can't render, the plugin sends lightweight telemetry (a failure-reason code only, never your queries or results) so we can spot broken setups. Opt out with `DO_NOT_TRACK` or `DISABLE_TELEMETRY`.
 
 ## Support
 
-- [Datadog MCP Server Documentation](https://docs.datadoghq.com/bits_ai/mcp_server/)
+- [Datadog MCP Server Documentation](https://docs.datadoghq.com/mcp_server/)
 
 ## Legal
 

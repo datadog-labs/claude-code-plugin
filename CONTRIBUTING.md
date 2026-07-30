@@ -16,10 +16,6 @@ Thanks for taking the time to contribute. This document covers basic guidelines 
 
 Note that this repository is a downstream artifact — it is regenerated from an internal source repository on each release. External contributions are reviewed here, then ported back to the internal source as part of the normal release flow. We will let you know in the PR if changes need to flow through that path.
 
-## Code of conduct
-
-This project follows the [Datadog Code of Conduct](https://github.com/DataDog/.github/blob/master/CODE_OF_CONDUCT.md).
-
 ## License
 
 By contributing, you agree that your contributions will be licensed under the repository's [LICENSE](LICENSE) file.
