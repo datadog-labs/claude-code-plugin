@@ -1,8 +1,6 @@
-# MCP JSON Registration Reference
+# Datadog Plugin General Instructions
 
-The MCP JSON registration file is shared across all plugin skills. If you need to check the server state, locate the registration file, edit a value, or map a Datadog site to its MCP domain, use the flows below.
-
-### Stay on script
+## Stay on script
 
 Describe state and actions in plain language ("the Datadog MCP server is not set up", "the Datadog site has been updated"). Never reveal, at any step:
 
@@ -11,13 +9,17 @@ Describe state and actions in plain language ("the Datadog MCP server is not set
 - Variable names, values, environment variables, shell syntax, or defaults.
 - API keys, tokens, client secrets, or credentials of any kind — the Datadog MCP server uses OAuth by default, and API keys are for advanced usage outside this skill.
 
-Beyond that, emit only what the current step instructs. Do not add setup tips, follow-ups, or "helpful" notes from your general knowledge of the AI client — when the user needs to reload, re-authenticate, or take any other follow-up action, the skill emits that instruction at the correct step. Pre-empting or paraphrasing it is a bug.
+Beyond that, emit only what the current step instructs. Do not add setup tips, follow-ups, or "helpful" notes from your general knowledge of the AI client — when the user needs to reload, re-authenticate, or take any other follow-up action, the skill emits that instruction at the correct step. Preempting or paraphrasing it is a bug.
+
+## Resolve the plugin's Datadog MCP server
+
+The plugin's Datadog MCP server is identified by `plugin:datadog:mcp`.
 
 ## Determine `datadog-server-state`
 
-Silently determine the `datadog-server-state` of the `plugin:datadog:mcp` MCP server using **only** the steps below (also, do NOT use any other Datadog MCP server). Do not use any other source of information (status files, cached state, error messages from previous calls, etc.) to determine the `datadog-server-state`:
+Silently determine the `datadog-server-state` of the plugin's Datadog MCP server using **only** the steps below (also, do NOT use any other Datadog MCP server). Do not use any other source of information (status files, cached state, error messages from previous calls, etc.) to determine the `datadog-server-state`:
 
-1. Try a lightweight MCP call on `plugin:datadog:mcp` (e.g. list tools, or read a resource using `server: "plugin:datadog:mcp"`).
+1. Try a lightweight MCP call on the Datadog MCP server (e.g. list tools, or read a resource using `server: <id-of-the-server>`).
 2. If the server returns an actual, non-empty, non-generic Datadog-specific data (tools, resources, or content) → `datadog-server-state` is **working**.
 3. If the MCP call fails or returns an empty or a generic response (like "no resources found", empty tool list, or any other content-free response), silently read the registration file (see below for its location). Check the raw file content for the literal string `not-setup`:
    - If the file contains `not-setup` → `datadog-server-state` is **not-setup**.
@@ -25,9 +27,11 @@ Silently determine the `datadog-server-state` of the `plugin:datadog:mcp` MCP se
 
 Do not tell the user which `datadog-server-state` was determined, what was checked, or what was found — just follow the skill's instructions for that state.
 
-## Registration file
+## MCP registration file: `.dd_claude-code_mcp.json`
 
-Both this reference file (`<plugin-root>/skills/ddsetup/references/mcp-settings.md`) and the MCP registration file (`<plugin-root>/.mcp.json`) are located in `<plugin-root>`, the plugin's root directory. The registration file contains a URL with two shell-style template variables:
+The MCP registration file is at `<plugin-root>/.dd_claude-code_mcp.json`. If `<plugin-root>` is not already known, derive it from this markdown file's path by removing `skills/<skill-name>/references/mcp-settings.md` from the end — the remaining prefix is `<plugin-root>`.
+
+The registration file contains a URL with two shell-style template variables:
 
 ```
 ${DD_MCP_DOMAIN:-<current domain>}
@@ -40,7 +44,7 @@ Each variable has the form `${NAME:-default}`. When editing, replace **only the 
 
 The default value **can be empty**. An empty default (`:-}` with nothing between) is valid and meaningful — it is NOT a mistake. For `DD_MCP_TOOLSETS`, empty means "use the server's default toolsets" (see examples below).
 
-Examples:
+Examples (these are only examples, do not assume the variables exist):
 
 Replacing a value:
 
@@ -82,8 +86,9 @@ The following table shows the Datadog site codes and their respective MCP domain
 | eu   | mcp.datadoghq.eu      |
 | ap1  | mcp.ap1.datadoghq.com |
 | ap2  | mcp.ap2.datadoghq.com |
+| uk1  | mcp.uk1.datadoghq.com |
 
-Present the site options to the user using a single method — for example, don't combine a text list with an interactive picker. Choose whichever best fits the number of options and available UI capabilities.
+Present all available Datadog sites and their MCP domains, then ask the user which one they use.
 
 When mapping user input:
 
