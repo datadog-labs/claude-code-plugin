@@ -1,0 +1,16 @@
+{
+  "description": "Datadog visualizations: renders results from the get_widget and visualize_tabular_data tools as live, interactive charts in a native side panel, then closes it when the session ends. macOS only. Falls back to the sandbox URL when unavailable.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__plugin_datadog_mcp__(get_widget|visualize_tabular_data)$",
+        "hooks": [{ "type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/viz/hooks/forward.sh"] }]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [{ "type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/viz/hooks/session_end.sh"] }]
+      }
+    ]
+  }
+}

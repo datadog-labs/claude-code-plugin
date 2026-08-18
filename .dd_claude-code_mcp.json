@@ -2,10 +2,11 @@
   "mcpServers": {
     "mcp": {
       "type": "http",
-      "url": "https://${DD_MCP_DOMAIN:-not-setup}/v1/mcp?referrer_ide=claude-code-plugin&plugin_version=0.7.14&toolsets=${DD_MCP_TOOLSETS:-}",
+      "url": "https://${DD_MCP_DOMAIN:-not-setup}/v1/mcp?referrer_ide=claude-code-plugin&plugin_version=0.7.17",
       "headers": {
         "DD_API_KEY": "${DD_API_KEY:-}",
-        "DD_APPLICATION_KEY": "${DD_APPLICATION_KEY:-}"
+        "DD_APPLICATION_KEY": "${DD_APPLICATION_KEY:-}",
+        "X-Datadog-MCP-Toolsets": "${DD_MCP_TOOLSETS:-}"
       }
     }
   }
