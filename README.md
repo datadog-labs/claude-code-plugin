@@ -30,7 +30,7 @@ Before you can start querying your Datadog data, you’ll need to connect the pl
 Once connected, just ask the agent anything about your Datadog data:
 
 ```
-Show me error logs from the last hour
+Show me error logs for the "checkout" service from the last hour
 ```
 
 ```
@@ -57,6 +57,7 @@ The plugin provides a few commands you can run in the agent to manage configurat
 
 - `/ddconfig` — change your Datadog site or switch organizations
 - `/ddtoolsets` — enable or disable groups of tools
+- `/ddviz` — enable, disable, or check the status of the visualization panel
 
 ## Advanced usage
 
@@ -86,6 +87,8 @@ When environment variables are set, `/ddsetup`, `/ddconfig`, and `/ddtoolsets` s
 
 - By default, authentication is handled via OAuth in your browser. Key authentication is also [supported](#key-authentication).
 - No Datadog credentials are sent to the AI model provider.
+- On macOS, visualization tool results can render in a native side panel. Run `/ddviz` to enable, disable, or check its status. Disabling applies to every Claude Code install sharing the default data directory (a dev build with `DDVIZ_DATA_DIR` set is controlled separately).
+- When the panel can't render, the plugin sends lightweight telemetry (a failure-reason code only, never your queries or results) so we can spot broken setups. Opt out with `DO_NOT_TRACK` or `DISABLE_TELEMETRY`.
 
 ## Support
 

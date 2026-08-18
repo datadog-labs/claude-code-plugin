@@ -1,0 +1,296 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'nonce-{{CSP_NONCE}}'; style-src 'unsafe-inline'; frame-src {{CSP_FRAME_SRC}}; form-action 'none'; base-uri 'none';"
+    />
+    <title>Dataviz MCP Host</title>
+    <style>
+      /* Structural reset — predictable layout inside WKWebView */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+
+      /* Full-bleed iframe wrapper; hidden until the MCP app signals initialized */
+      .iframe-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+      .iframe-container.visible {
+        opacity: 1;
+      }
+
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="iframe-container">
+      <iframe
+        id="app-frame"
+        src="{{FRAME_SRC}}"
+        sandbox="allow-scripts allow-same-origin"
+        allow="clipboard-read; clipboard-write"
+        allowtransparency="true"
+      ></iframe>
+    </div>
+
+    <script nonce="{{CSP_NONCE}}">
+      const PROTOCOL_VERSION = '2026-01-26';
+
+      const DEBUG = {{DEBUG}};
+      // Bidirectional transport (stdio) gates host capabilities that need a
+      // reply path back to the iframe. Unidirectional (hooks) leaves them off.
+      const BIDIRECTIONAL = {{BIDIRECTIONAL}};
+      function debug(...args) {
+          if (DEBUG) console.log('[MCP-HOST]', ...args);
+      }
+      function debugError(...args) {
+          console.error('[MCP-HOST ERROR]', ...args);
+      }
+
+      // ── Native Bridge ──
+      //
+      // All messages between the host and native (Swift) are JSON-RPC 2.0.
+      // The host forwards iframe messages as-is when possible, and
+      // constructs JSON-RPC notifications for host-originated events
+      // (theme changes, shutdown).
+
+      function hasNativeBridge() {
+          return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeBridge);
+      }
+
+      function sendToNative(msg) {
+          if (!hasNativeBridge()) {
+              debug('sendToNative: bridge not available, skipping');
+              return;
+          }
+          debug('sendToNative:', msg.method || 'response');
+          try {
+              window.webkit.messageHandlers.nativeBridge.postMessage(JSON.stringify(msg));
+          } catch (e) {
+              debugError('sendToNative failed:', e);
+          }
+      }
+
+      // ── Native → JS Callbacks (called by Swift via evalJs) ──
+
+      function handleThemeChanged(payload) {
+          if (!payload || !payload.theme) {
+              debugError('handleThemeChanged: missing theme in payload');
+              return;
+          }
+          debug('Theme changed to:', payload.theme);
+          theme = payload.theme;
+
+          if (isInitialized) {
+              sendNotification('ui/notifications/host-context-changed', getHostContext());
+          }
+      }
+
+      function handleDisplayModeChanged(payload) {
+          if (!payload || !payload.mode) {
+              debugError('handleDisplayModeChanged: missing mode in payload');
+              return;
+          }
+          debug('Display mode changed to:', payload.mode);
+          displayMode = payload.mode;
+
+          if (isInitialized) {
+              sendNotification('ui/notifications/host-context-changed', getHostContext());
+          }
+      }
+
+      function handleFixedHeightChanged(payload) {
+          if (!payload || typeof payload.hasFixedHeight !== 'boolean') {
+              debugError('handleFixedHeightChanged: missing hasFixedHeight in payload');
+              return;
+          }
+          debug('Fixed height changed, hasFixedHeight:', payload.hasFixedHeight);
+          hasFixedHeight = payload.hasFixedHeight;
+
+          if (isInitialized) {
+              sendNotification('ui/notifications/host-context-changed', getHostContext());
+          }
+      }
+
+      function handleWindowFocusChanged(payload) {
+          if (!payload || typeof payload.focused !== 'boolean') {
+              debugError('handleWindowFocusChanged: missing focused in payload');
+              return;
+          }
+          debug('Window focus changed:', payload.focused);
+      }
+
+      let isInitialized = false;
+      let theme = 'dark';
+      let displayMode = 'inline';
+      let hasFixedHeight = false;
+
+      const frame = document.getElementById('app-frame');
+      // May be redirected by the time the iframe loads, so it is refreshed
+      // from the first trusted message received (see isTrustedOrigin below).
+      let frameOrigin = new URL('{{FRAME_SRC}}').origin;
+
+      const TRUSTED_DOMAIN_SUFFIXES = {{TRUSTED_DOMAIN_SUFFIXES}};
+
+      function isTrustedOrigin(origin) {
+          let url;
+          try {
+              url = new URL(origin);
+          } catch (e) {
+              return false;
+          }
+          if (url.protocol !== 'https:') return false;
+          return TRUSTED_DOMAIN_SUFFIXES.some(
+              (suffix) => url.hostname === suffix.slice(1) || url.hostname.endsWith(suffix)
+          );
+      }
+
+      // ── Host Context ──
+
+      function getHostContext() {
+          return {
+              theme: theme,
+              displayMode: displayMode,
+              availableDisplayModes: ['inline', 'fullscreen'],
+              containerDimensions: hasFixedHeight
+                  ? { width: frame.clientWidth, height: frame.clientHeight }
+                  : { width: frame.clientWidth, maxHeight: frame.clientHeight },
+              userAgent: navigator.userAgent,
+              safeAreaInsets: {
+                top: 0,
+                left: 16,
+                right: 16,
+                bottom: 0
+              },
+              platform: 'desktop',
+          };
+      }
+
+      // ── Message Sending (host → iframe) ──
+
+      function sendToApp(msg) {
+          debug('sendToApp:', msg.method || 'response');
+          if (!frame.contentWindow) {
+              debugError('frame.contentWindow is null!');
+              return;
+          }
+          try {
+              frame.contentWindow.postMessage(msg, frameOrigin);
+          } catch (e) {
+              debugError('postMessage failed:', e);
+          }
+      }
+
+      function sendNotification(method, params) {
+          sendToApp({ jsonrpc: '2.0', method, params });
+      }
+
+      function sendResponse(id, result) {
+          sendToApp({ jsonrpc: '2.0', id, result });
+      }
+
+      // ── Message Handling (iframe → host) ──
+
+      function handleMessage(event) {
+          if (event.source !== frame.contentWindow) return;
+          if (!isTrustedOrigin(event.origin)) return;
+          frameOrigin = event.origin;
+
+          const msg = event.data;
+          if (!msg || msg.jsonrpc !== '2.0') return;
+
+          const { id, method, params } = msg;
+          switch (method) {
+              // ── Handled locally by the host ──
+
+              case 'ui/initialize':
+                  sendResponse(id, {
+                      protocolVersion: PROTOCOL_VERSION,
+                      hostCapabilities: {
+                          openLinks: {},
+                          ...(BIDIRECTIONAL ? { serverTools: {}, updateModelContext: {} } : {}),
+                      },
+                      hostInfo: {
+                          name: '{{HOST_NAME}}',
+                          version: '{{HOST_VERSION}}',
+                      },
+                      hostContext: getHostContext(),
+                  });
+                  return;
+
+              // ── Handled locally + forwarded to native ──
+
+              case 'ui/notifications/initialized':
+                  if (!isInitialized) {
+                      isInitialized = true;
+                      document.querySelector('.iframe-container').classList.add('visible');
+                  }
+                  break;
+
+              case 'ui/request-display-mode':
+                  if (params && params.mode) {
+                      displayMode = params.mode;
+                  }
+                  sendResponse(id, { mode: displayMode });
+                  break;
+          }
+
+          // Forward the original JSON-RPC message to native as-is.
+          sendToNative(msg);
+      }
+
+      function shutdown(reason) {
+          debugError('Shutdown:', reason);
+          sendToNative({
+            jsonrpc: '2.0',
+            method: 'ui/shutdown',
+            params: { reason }
+          });
+      }
+
+      // ── Initialization ──
+
+      window.addEventListener('message', handleMessage);
+      debug('MCP Host initialized');
+
+      const INIT_TIMEOUT_MS = 5000;
+      frame.addEventListener('error', () => {
+          shutdown('Failed to load MCP app: ' + frame.src);
+      });
+      setTimeout(() => {
+          if (!isInitialized) {
+              shutdown('MCP app did not initialize within ' + INIT_TIMEOUT_MS + 'ms (' + frame.src + ')');
+          }
+      }, INIT_TIMEOUT_MS);
+
+      const resizeObserver = new ResizeObserver(() => {
+          if (isInitialized) {
+              debug('Container resized:', frame.clientWidth, 'x', frame.clientHeight);
+              sendNotification('ui/notifications/host-context-changed', getHostContext());
+          }
+      });
+      resizeObserver.observe(frame);
+    </script>
+  </body>
+</html>
