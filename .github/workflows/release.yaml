@@ -52,32 +52,31 @@ jobs:
       - name: Check if release already exists
         id: check
         run: |
-          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+          TAG="${{ steps.version.outputs.tag }}"
+          # Match on tag_name explicitly (not `gh release view`) so this also
+          # catches draft releases, which have a tag_name but no git tag ref
+          # yet — otherwise every push before the draft is published would
+          # create a duplicate draft for the same version.
+          MATCH=$(gh api repos/${{ github.repository }}/releases --paginate \
+            --jq "[.[] | select(.tag_name == \"${TAG}\")] | length")
+          if [ "$MATCH" -gt 0 ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Release ${{ steps.version.outputs.tag }} already exists, skipping"
+            echo "Release ${TAG} already exists (or is already drafted), skipping"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create tag if missing
+      - name: Create draft release
         if: steps.check.outputs.exists == 'false'
         run: |
+          # Org policy blocks Actions from creating/pushing tags directly, so
+          # we create a draft release instead. GitHub doesn't create the git
+          # tag ref until a human publishes the draft, which is done under
+          # their own (bypass-exempt) identity rather than github-actions[bot].
           TAG="${{ steps.version.outputs.tag }}"
-          # If tag doesn't exist on remote, create it at the triggering commit.
-          if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag "${TAG}" "${{ github.sha }}"
-            git push origin "refs/tags/${TAG}"
-          fi
-
-      - name: Create release
-        if: steps.check.outputs.exists == 'false'
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          ARGS="--title ${TAG} --generate-notes"
+          ARGS="--title ${TAG} --generate-notes --draft --target ${{ github.sha }}"
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             ARGS="$ARGS --prerelease"
           fi
