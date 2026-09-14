@@ -1,0 +1,58 @@
+name: Hooks
+
+on:
+  pull_request:
+    paths:
+      - 'hooks/**'
+      - 'viz/hooks/**'
+      - 'tests/**'
+      - '.github/workflows/hooks.yaml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'hooks/**'
+      - 'viz/hooks/**'
+      - 'tests/**'
+      - '.github/workflows/hooks.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # git does not set NTFS permission bits on checkout, so the exec bit the
+      # repo records is not observable on Windows. Git Bash reports .sh files as
+      # executable anyway, which is what Claude Code relies on there.
+      - name: Run hook tests
+        shell: bash
+        run: bash tests/hooks_test.sh
+
+  # The bug in #27 is that ${CLAUDE_PLUGIN_ROOT} reaches the hook as a native
+  # Windows path. Git Bash reports $PWD in Unix form, so the job above would
+  # never see that shape. This one injects the backslash path GitHub gives us,
+  # which is what Claude Code actually substitutes on Windows.
+  windows-native-plugin-root:
+    name: test (windows-latest, native plugin root)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run hook tests with a backslash CLAUDE_PLUGIN_ROOT
+        shell: bash
+        env:
+          CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}
+        run: |
+          echo "CLAUDE_PLUGIN_ROOT=$CLAUDE_PLUGIN_ROOT"
+          bash tests/hooks_test.sh

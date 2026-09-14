@@ -4,12 +4,12 @@
     "PostToolUse": [
       {
         "matcher": "^mcp__plugin_datadog_mcp__(get_widget|visualize_tabular_data)$",
-        "hooks": [{ "type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/viz/hooks/forward.sh"] }]
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/viz/hooks/forward.sh" }]
       }
     ],
     "SessionEnd": [
       {
-        "hooks": [{ "type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/viz/hooks/session_end.sh"] }]
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/viz/hooks/session_end.sh" }]
       }
     ]
   }
