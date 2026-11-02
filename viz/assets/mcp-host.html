@@ -145,6 +145,7 @@
       let theme = 'dark';
       let displayMode = 'inline';
       let hasFixedHeight = false;
+      let toolInfo = null;
 
       const frame = document.getElementById('app-frame');
       // May be redirected by the time the iframe loads, so it is refreshed
@@ -170,6 +171,7 @@
 
       function getHostContext() {
           return {
+              ...(toolInfo ? { toolInfo: toolInfo } : {}),
               theme: theme,
               displayMode: displayMode,
               availableDisplayModes: ['inline', 'fullscreen'],
@@ -191,6 +193,10 @@
 
       function sendToApp(msg) {
           debug('sendToApp:', msg.method || 'response');
+          if (msg.method === 'ui/notifications/host-context-changed' && msg.params && msg.params.toolInfo) {
+              toolInfo = msg.params.toolInfo;
+              msg = { jsonrpc: '2.0', method: msg.method, params: getHostContext() };
+          }
           if (!frame.contentWindow) {
               debugError('frame.contentWindow is null!');
               return;
@@ -229,7 +235,7 @@
                       protocolVersion: PROTOCOL_VERSION,
                       hostCapabilities: {
                           openLinks: {},
-                          ...(BIDIRECTIONAL ? { serverTools: {}, updateModelContext: {} } : {}),
+                          ...(BIDIRECTIONAL ? { serverTools: {}, updateModelContext: {}, message: { text: {} } } : {}),
                       },
                       hostInfo: {
                           name: '{{HOST_NAME}}',

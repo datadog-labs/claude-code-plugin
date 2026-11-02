@@ -4,7 +4,7 @@ Thanks for taking the time to contribute. This document covers basic guidelines 
 
 ## Submitting issues
 
-- For feature requests, open a [GitHub issue](../../issues/new) describing the use case and proposed behavior.
+- For feature requests, open a [GitHub issue](https://github.com/datadog-labs/claude-code-plugin/issues/new) describing the use case and proposed behavior.
 - For bug reports, include reproduction steps, expected vs. actual behavior, and your environment (OS, client version, plugin version).
 
 ## Pull requests

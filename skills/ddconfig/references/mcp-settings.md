@@ -1,9 +1,5 @@
 # Datadog Plugin General Instructions
 
-## Reading MCP resources
-
-When a step says "use the `datadog://...` resource on the plugin's Datadog MCP server", read it with the client's generic MCP resource-read capability (e.g. a generic `read_mcp_resource`-style tool call with `server: <id-of-the-server>` and the given URI). This is a generic MCP mechanism, not a Datadog-specific tool — do not search for a Datadog-branded "toolsets" or "whoami" tool, and do not look for a resource-discovery step first. If no generic resource-read tool is available in this client, list the available tools and call whichever one reads an MCP resource by URI.
-
 ## Stay on script
 
 Describe state and actions in plain language ("the Datadog MCP server is not set up", "the Datadog site has been updated"). Never reveal, at any step:
@@ -18,6 +14,10 @@ Beyond that, emit only what the current step instructs. Do not add setup tips, f
 ## Resolve the plugin's Datadog MCP server
 
 The plugin's Datadog MCP server is identified by `plugin:datadog:mcp`.
+
+## Reading MCP resources
+
+When a step says "use the `datadog://...` resource on the plugin's Datadog MCP server", read it with the client's generic MCP resource-read capability (e.g. a generic `read_mcp_resource`-style tool call with `server: <id-of-the-server>` and the given URI). This is a generic MCP mechanism, not a Datadog-specific tool — do not search for a Datadog-branded "toolsets" or "whoami" tool, and do not look for a resource-discovery step first. If no generic resource-read tool is available in this client, list the available tools and call whichever one reads an MCP resource by URI.
 
 ## Determine `datadog-server-state`
 
