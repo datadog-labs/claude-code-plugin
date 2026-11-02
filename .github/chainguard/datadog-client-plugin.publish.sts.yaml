@@ -7,7 +7,9 @@ issuer: https://token.actions.githubusercontent.com
 # both patterns here and propagate the policy to each public repo via the
 # next stable v*-public release — tags using the new grammar will fail at
 # token-mint until the updated policy reaches the public repo's main.
-subject_pattern: 'repo:ddoghq/datadog-client-plugin:ref:refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-preview\.[a-z0-9-]+)?(\+[a-z0-9-]+)?-public'
+#
+# GitHub's immutable OIDC subject includes the organization and repository IDs.
+subject_pattern: 'repo:ddoghq@230443989/datadog-client-plugin@1348581382:ref:refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-preview\.[a-z0-9-]+)?(\+[a-z0-9-]+)?-public'
 
 claim_pattern:
   event_name: push
