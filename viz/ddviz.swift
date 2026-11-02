@@ -27,7 +27,7 @@ import WebKit
 struct Config {
 
   static let appName = "ddviz"
-  static let appVersion = "0.7.17"
+  static let appVersion = "0.7.19"
   static let pluginId = "claude-code-plugin"
   static let defaultWindowWidth = 610.0
   static let defaultWindowHeight = 400.0
@@ -43,6 +43,22 @@ struct Config {
 
   /// Transport selected via `DDVIZ_IPC`. Defaults to `.hooks`.
   enum IPCMode { case hooks, stdio }
+
+  /// How the panel is presented. Declared by the host through `DDVIZ_OPEN`,
+  /// independently of the transport: what matters is whether the host lets
+  /// the user open ddviz on demand.
+  enum Presentation: Equatable {
+    /// Never shown; renders off-screen for snapshots (`DDVIZ_HEADLESS=1`).
+    case headless
+    /// Opens itself when a visualization arrives, then follows the parent
+    /// app's focus: for hosts that can't open ddviz on demand (Claude Code).
+    /// `menubar` adds the status item and main menu of a persistent daemon
+    /// (`DDVIZ_MENUBAR_CONTEXT=1`).
+    case automatic(menubar: Bool)
+    /// Opened and closed only by the user, e.g. through a host shortcut (pi).
+    /// Once shown, stays pinned on top until closed.
+    case onDemand
+  }
 
   let appName: String
   let appVersion: String
@@ -74,14 +90,16 @@ struct Config {
   /// and is always nil when ``parentPID`` is.
   let parentBundleId: String?
   let panelPosition: PanelPosition
-  /// When true, a system-status-bar item and minimal main menu are installed.
-  /// Intended for clients (e.g. Claude Code) that run as a persistent daemon
-  /// without their own menu bar presence.
-  let menubarContext: Bool
+  let presentation: Presentation
+  /// Transport selected via `DDVIZ_IPC`.
   let ipcMode: IPCMode
   /// PID of the parent process (Claude Code) passed via `DDVIZ_PARENT_PID`.
   /// When set, ddviz terminates once this process exits.
   let parentPID: pid_t?
+  /// Debug only: let ``VizPanel/reveal(source:)`` run while headless, so panel intent is
+  /// observable without pixels. The window stays invisible — `animateAlpha` is a
+  /// no-op under `headless`.
+  let debugHeadlessReveal: Bool
 
   /// Resolve all configuration from the process environment.
   /// Calls `fatalError` on invalid values or failed security primitives.
@@ -95,7 +113,17 @@ struct Config {
     let rootDir = URL(fileURLWithPath: CommandLine.arguments[0])
       .deletingLastPathComponent().path
 
-    let menubarContext = env("DDVIZ_MENUBAR_CONTEXT") == "1"
+    // Headless never presents anything, whatever the host declares.
+    let presentation: Presentation
+    if headless {
+      presentation = .headless
+    } else {
+      switch env("DDVIZ_OPEN") {
+      case nil, "automatic": presentation = .automatic(menubar: env("DDVIZ_MENUBAR_CONTEXT") == "1")
+      case "on-demand": presentation = .onDemand
+      case let other?: fatalError("DDVIZ_OPEN must be 'automatic' or 'on-demand', got '\(other)'")
+      }
+    }
 
     let ipcMode: IPCMode
     switch env("DDVIZ_IPC") {
@@ -138,6 +166,10 @@ struct Config {
 
     let parentPID: pid_t? = env("DDVIZ_PARENT_PID").flatMap { Int($0) }.map { pid_t($0) }
 
+    // Requires DDVIZ_DEBUG=1, like DDVIZ_DEBUG_TRIGGER_DISABLE: inert for a
+    // default user even if the variable is present in the environment.
+    let debugHeadlessReveal = debug && env("DDVIZ_TEST_HEADLESS_REVEAL") == "1"
+
     // Only ever resolved alongside a PID, so the tracker can key it to the
     // session that owns it. Prefer the owning GUI app from the process tree;
     // fall back to the inherited `__CFBundleIdentifier`, then nil (always reveal).
@@ -169,9 +201,10 @@ struct Config {
       jsHandlerName: jsHandlerName,
       parentBundleId: parentBundleId,
       panelPosition: panelPosition,
-      menubarContext: menubarContext,
+      presentation: presentation,
       ipcMode: ipcMode,
-      parentPID: parentPID
+      parentPID: parentPID,
+      debugHeadlessReveal: debugHeadlessReveal
     )
   }
 
@@ -398,6 +431,10 @@ enum JsonRpc {
     return validate(dict)
   }
 
+  /// First value of JSON-RPC 2.0's implementation-defined server-error range
+  /// (-32000…-32099), used for host-side failures.
+  static let serverError = -32000
+
   static func error(id: Any, code: Int, message: String) -> Payload? {
     let dict: [String: Any] = [
       "jsonrpc": "2.0",
@@ -430,6 +467,11 @@ enum InboundMessage {
   /// that support bidirectional communication (e.g. stdio). The `id` is the
   /// JSON-RPC request id and must be echoed back in the response.
   case snapshot(id: String)
+
+  /// Debug-only state request (DDVIZ_DEBUG=1): the panel's current
+  /// presentation state, answered over stdio. Lets tests assert behavior
+  /// without parsing log wording.
+  case state(id: String)
 
   /// A client session ended. Includes the session id so the app can
   /// track active sessions and terminate when none remain.
@@ -786,11 +828,25 @@ class IPCHooksAdapter: IPCAdapter {
         ],
       ]
 
+      var messages: [InboundMessage] = []
+      let parts = (dict["tool_name"] as? String)?.components(separatedBy: "__") ?? []
+      let toolName = parts.dropFirst(2).joined(separator: "__")
+      if parts.count >= 3, parts[0] == "mcp", !toolName.isEmpty {
+        let toolInfo: [String: Any] = [
+          "jsonrpc": "2.0",
+          "method": "ui/notifications/host-context-changed",
+          "params": [
+            "toolInfo": ["tool": ["name": toolName, "inputSchema": ["type": "object"]]]
+          ],
+        ]
+        messages.append(.opaque(sessionId: sessionId, payload: JsonRpc.validate(toolInfo)!))
+      }
+
       // Deliver the visualization data, then reveal the panel.
-      return [
-        .toolResult(sessionId: sessionId, parentPID: parentPID, payload: JsonRpc.validate(wrapped)!),
-        .show,
-      ]
+      messages.append(
+        .toolResult(sessionId: sessionId, parentPID: parentPID, payload: JsonRpc.validate(wrapped)!))
+      messages.append(.show)
+      return messages
     default:
       log("Dropping unknown hook event: \(hookEvent ?? "<nil>")")
       return []
@@ -992,9 +1048,12 @@ class IPCStdioAdapter: IPCAdapter {
         // Response to a tool call the iframe initiated.
         return .toolCallResponse(payload: payload)
       case .request, .notification:
-        // Native snapshot request — handle in-process rather than forwarding.
+        // Native requests handled in-process rather than forwarded.
         if payload.method == "snapshot", let id = dict["id"] {
           return .snapshot(id: String(describing: id))
+        }
+        if payload.method == "state", let id = dict["id"] {
+          return .state(id: String(describing: id))
         }
         // Request (host request from pi) or notification (viz data).
         return .opaque(sessionId: nil, payload: payload)
@@ -1153,7 +1212,8 @@ enum PanelPosition {
 /// Tracks parent application state and parent process liveness. Consolidates
 /// all "should ddviz stay alive?" logic:
 ///
-/// - **App activation** (NSWorkspace) — drives panel show/hide.
+/// - **App activation** (NSWorkspace) — drives the automatic presentation's
+///   visibility; the on-demand presentation ignores it (the user owns visibility).
 /// - **Process liveness** (kqueue) — watches each parent (Claude Code) PID;
 ///   when the last watched PID exits (including `kill -9`), fires `onShouldTerminate`.
 ///
@@ -1166,14 +1226,22 @@ class ParentAppTracker {
   private var pidParentApps: [pid_t: String] = [:]
   private var parentBundleIds: Set<String> { Set(pidParentApps.values) }
   private(set) var isParentActive: Bool
+  /// Fired when ``isParentActive`` *changes*, whatever caused it — a focus change
+  /// or this class's own bookkeeping. Drives visibility, never panel intent.
   var onActivated: (() -> Void)?
   var onDeactivated: (() -> Void)?
+  /// Fired on every frontmost-app change, whether or not ``isParentActive`` moved.
+  /// This, not the derived state, is what "the user switched apps" means.
+  var onFrontmostAppChanged: (() -> Void)?
 
   /// Fired (on the main queue) when ddviz should terminate. The string
   /// describes why (e.g. "all watched processes exited").
   var onShouldTerminate: ((_ reason: String) -> Void)?
 
   private let log: Log
+
+  /// Frontmost app's bundle id right now; transiently nil mid-switch.
+  var frontmostBundleId: String? { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
 
   static func isActive(frontmost: String?, parents: Set<String>) -> Bool {
     parents.isEmpty || (frontmost.map(parents.contains) ?? false)
@@ -1324,12 +1392,21 @@ class ParentAppTracker {
   }
 
   @objc private func frontmostAppChanged(_ notification: Notification) {
-    refreshParentActive()
+    refreshParentActive(loggedCause: .workspace)
+    // Unconditional, and after the refresh so observers see a fresh
+    // `isParentActive`: a switch between two non-parent apps flips nothing, yet
+    // is still the user turning their attention elsewhere.
+    onFrontmostAppChanged?()
   }
+
+  /// Diagnostics only — tags the log line with which caller asked for the
+  /// recompute, and affects nothing else. `.workspace` is a real focus change;
+  /// `.registration` is a session's app being resolved or dropped.
+  enum LoggedCause: String { case workspace, registration }
 
   /// Recompute from the current frontmost app, not the notification's app:
   /// switching between parent apps delivers deactivate and activate in no fixed order.
-  private func refreshParentActive() {
+  private func refreshParentActive(loggedCause: LoggedCause) {
     dispatchPrecondition(condition: .onQueue(.main))
     let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
     let parents = parentBundleIds
@@ -1338,7 +1415,9 @@ class ParentAppTracker {
     let active = Self.isActive(frontmost: frontmost, parents: parents)
     guard active != isParentActive else { return }
     isParentActive = active
-    log.info("Parent app \(active ? "activated" : "deactivated") (frontmost: \(frontmost ?? "none"))")
+    log.info(
+      "Parent app \(active ? "activated" : "deactivated") (frontmost: \(frontmost ?? "none")) [source: \(loggedCause.rawValue)]"
+    )
     if active { onActivated?() } else { onDeactivated?() }
   }
 
@@ -1350,7 +1429,7 @@ class ParentAppTracker {
     }
     pidParentApps[pid] = bundleId
     log.info("Registered parent app \(bundleId) for PID \(pid) (parents: \(parentBundleIds.count))")
-    refreshParentActive()
+    refreshParentActive(loggedCause: .registration)
   }
 
   private func unregisterParentApp(for pid: pid_t) {
@@ -1359,7 +1438,7 @@ class ParentAppTracker {
     if !parentBundleIds.contains(bundleId) {
       log.info("Unregistered parent app \(bundleId) (parents: \(parentBundleIds.count))")
     }
-    refreshParentActive()
+    refreshParentActive(loggedCause: .registration)
   }
 }
 
@@ -1372,10 +1451,139 @@ enum PanelAppearance: String {
 }
 
 /// Visibility intent policy for the panel.
-enum UserIntent {
+enum UserIntent: String {
   case dismissed  // hidden until an explicit re-show
   case sticky     // visible while a parent app is frontmost, or the panel is key
-  case pinned     // visible regardless of focus; the next setParentActive call (either direction) returns it to .sticky
+  case pinned     // visible regardless of focus; the next frontmost-app change returns it to .sticky
+}
+
+/// User interaction or command that triggered a panel visibility change.
+enum TriggerSource: String {
+  case button
+  case keyboard
+  case overlay
+  case host
+  case menubar
+}
+
+// MARK: - Panel Policy
+
+/// Per-``Config/Presentation`` panel behavior, in one place, so `VizPanel` and
+/// `AppDelegate` never branch on the presentation themselves. The host picks
+/// the presentation; the policy translates it into concrete decisions.
+protocol PanelPolicy {
+  /// The window joins every Space and floats over fullscreen apps.
+  var joinsAllSpaces: Bool { get }
+  /// A main menu is installed to own keyboard shortcuts — needed by a
+  /// persistent daemon with no host menu bar, not by an on-demand panel.
+  var ownsMainMenu: Bool { get }
+  /// A menubar status item is installed once the WebView is ready.
+  var hasStatusItem: Bool { get }
+  /// The status item opens a context menu on secondary click.
+  var statusItemHasMenu: Bool { get }
+  /// A frontmost-app change can demote a pinned panel back to sticky.
+  var releasesPinOnAppSwitch: Bool { get }
+
+  /// Primary click on the status item.
+  func statusItemPrimaryClick(_ panel: VizPanel?)
+
+  /// The panel's desired appearance from its current state.
+  func desiredAppearance(
+    intent: UserIntent, parentActive: Bool, isKey: Bool, mouseInside: Bool
+  ) -> PanelAppearance
+
+  /// Alpha to settle at in the idle appearance; `freshlyRevealed` marks the
+  /// update right after an explicit reveal, while the user is still locating
+  /// the panel.
+  func idleAlpha(overlap: CGFloat, freshlyRevealed: Bool) -> CGFloat
+}
+
+extension PanelPolicy {
+  // On demand the panel never idles, so the default is unreachable there.
+  func idleAlpha(overlap: CGFloat, freshlyRevealed: Bool) -> CGFloat { 1 }
+}
+
+/// The panel opens itself when a visualization arrives and follows the
+/// parent app's focus (Claude Code; the headless host renders through the
+/// same machinery without ever showing anything).
+struct AutomaticPanelPolicy: PanelPolicy {
+  let joinsAllSpaces = false
+  let ownsMainMenu: Bool
+  let hasStatusItem: Bool
+  let statusItemHasMenu = true
+  let releasesPinOnAppSwitch = true
+  /// Idle panels mostly covered by parent windows dim so they don't fight the
+  /// terminal for attention.
+  private let idleDimmedAlpha: CGFloat = 0.3
+  /// Below this parent-window overlap the panel stays fully readable.
+  private let readableOverlapRatio: CGFloat = 0.5
+
+  init(menubar: Bool) {
+    self.ownsMainMenu = menubar
+    self.hasStatusItem = menubar
+  }
+
+  func desiredAppearance(
+    intent: UserIntent, parentActive: Bool, isKey: Bool, mouseInside: Bool
+  ) -> PanelAppearance {
+    let visible: Bool
+    switch intent {
+    case .dismissed: visible = false
+    case .pinned: visible = true
+    case .sticky: visible = parentActive || isKey
+    }
+    return !visible ? .hidden : (isKey || mouseInside) ? .active : .idle
+  }
+
+  func idleAlpha(overlap: CGFloat, freshlyRevealed: Bool) -> CGFloat {
+    freshlyRevealed || overlap < readableOverlapRatio ? 1 : idleDimmedAlpha
+  }
+
+  func statusItemPrimaryClick(_ panel: VizPanel?) {
+    panel?.userToggle(pinned: true, source: .menubar)
+  }
+}
+
+/// The user opens and closes the panel; while shown, it stays pinned on top
+/// regardless of focus (pi).
+struct OnDemandPanelPolicy: PanelPolicy {
+  let joinsAllSpaces = true
+  let ownsMainMenu = false
+  let hasStatusItem = true
+  let statusItemHasMenu = false
+  let releasesPinOnAppSwitch = false
+
+  // Hidden or fully visible: `UserIntent` collapses to "dismissed or not" —
+  // `.sticky` and `.pinned` both mean visible.
+  func desiredAppearance(
+    intent: UserIntent, parentActive: Bool, isKey: Bool, mouseInside: Bool
+  ) -> PanelAppearance {
+    intent == .dismissed ? .hidden : .active
+  }
+
+  func statusItemPrimaryClick(_ panel: VizPanel?) {
+    panel?.revealFocused(source: .menubar)
+  }
+}
+
+extension Config.Presentation {
+  /// Stable identifier for telemetry tags.
+  var telemetryName: String {
+    switch self {
+    case .headless: return "headless"
+    case .automatic: return "automatic"
+    case .onDemand: return "on-demand"
+    }
+  }
+
+  /// The panel policy matching this presentation.
+  var panelPolicy: PanelPolicy {
+    switch self {
+    case .headless: return AutomaticPanelPolicy(menubar: false)
+    case .automatic(let menubar): return AutomaticPanelPolicy(menubar: menubar)
+    case .onDemand: return OnDemandPanelPolicy()
+    }
+  }
 }
 
 /// Invisible overlay at the top of the panel that enables window dragging.
@@ -1449,7 +1657,6 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
   }
 
   private enum Constants {
-    static let alphaIdle: CGFloat = 0.3
     static let alphaActive: CGFloat = 1.0
     static let fadeInSecs: TimeInterval = 0.2
     static let fadeOutSecs: TimeInterval = 0.3
@@ -1469,6 +1676,7 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
   private let config: Config
   private let log: Log
   let parentTracker: ParentAppTracker
+  let policy: PanelPolicy
   private(set) var webView: WKWebView!
   private var closeButton: CloseButton!
   private(set) var isFrameReady = false
@@ -1486,6 +1694,9 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
   private var themeObservation: NSKeyValueObservation?
   /// Starts `.dismissed` so the panel stays hidden until an explicit show
   private(set) var userIntent: UserIntent = .dismissed
+  /// Frontmost app when the pin was set, recovered on the first usable
+  /// notification if it was unavailable.
+  private var pinAnchorBundleId: String?
   /// One-shot: when set, the next show grabs key focus.
   private var grabFocusOnNextShow = false
   private(set) var currentAppearance: PanelAppearance = .hidden
@@ -1496,10 +1707,11 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
   /// send-user-message).
   var onOutbound: ((OutboundMessage) -> Void)?
 
-  init(config: Config, log: Log, parentTracker: ParentAppTracker) {
+  init(config: Config, log: Log, parentTracker: ParentAppTracker, policy: PanelPolicy) {
     self.config = config
     self.log = log.scoped("GUI")
     self.parentTracker = parentTracker
+    self.policy = policy
 
     let frame = NSRect(x: 0, y: 0, width: config.windowWidth, height: config.windowHeight)
     super.init(
@@ -1514,6 +1726,11 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
     backgroundColor = .clear
     level = .floating
     hidesOnDeactivate = false
+    if policy.joinsAllSpaces {
+      // Stay above everything, including other Spaces and fullscreen apps,
+      // until the user closes the panel.
+      collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+    }
     inlineFrame = frame
 
     if let origin = parentTracker.panelOrigin(for: frame, position: config.panelPosition) {
@@ -1569,7 +1786,7 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
         height: bs
       ))
     closeButton.autoresizingMask = [.maxXMargin, .minYMargin]
-    closeButton.onClose = { [weak self] in self?.userClose() }
+    closeButton.onClose = { [weak self] in self?.userClose(source: .button) }
     container.addSubview(closeButton)
 
     setupTracking()
@@ -1638,27 +1855,25 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
   override var canBecomeKey: Bool { !config.headless }
 
   @objc func closeWindow(_ sender: Any?) {
-    userClose()
+    userClose(source: .button)
   }
 
   override func cancelOperation(_ sender: Any?) {
-    userClose()
+    userClose(source: .keyboard)
   }
 
   override func performKeyEquivalent(with event: NSEvent) -> Bool {
-    // In menubar context the main menu owns all keyboard shortcuts.
-    if config.menubarContext { return super.performKeyEquivalent(with: event) }
+    // The main menu, when there is one, owns all keyboard shortcuts.
+    if policy.ownsMainMenu { return super.performKeyEquivalent(with: event) }
     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-    // Cmd+W / Cmd+Q — standard macOS close shortcuts.
-    if flags == .command &&
-       (event.charactersIgnoringModifiers == "w" || event.charactersIgnoringModifiers == "q") {
-      userClose()
+    // Cmd+W — the standard close shortcut; the panel stays alive and reopens.
+    if flags == .command && event.charactersIgnoringModifiers == "w" {
+      userClose(source: .keyboard)
       return true
     }
-    // Ctrl+Shift+O — mirrors the pi toggle shortcut so it works when the
-    // panel has key focus. keyCode 31 = physical O on all layouts (AZERTY etc).
-    if flags == [.control, .shift] && event.keyCode == 31 {
-      userClose()
+    // Cmd+Q — the standard quit shortcut; the host relaunches on next use.
+    if flags == .command && event.charactersIgnoringModifiers == "q" {
+      NSApp.terminate(nil)
       return true
     }
     return super.performKeyEquivalent(with: event)
@@ -1708,24 +1923,20 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
     } / panelArea
   }
 
-  func updateAppearance(forceFullOpacity: Bool = false) {
+  /// Recompute what should be on screen and apply it.
+  func updateAppearance(freshlyRevealed: Bool = false) {
     let mouseInside = frame.contains(NSEvent.mouseLocation)
-    let overlapRatio = parentOverlapRatio()
-    let visible: Bool = {
-      switch userIntent {
-      case .dismissed: return false
-      case .pinned: return true
-      case .sticky: return parentTracker.isParentActive || isKeyWindow
-      }
-    }()
-    let desired: PanelAppearance =
-      !visible ? .hidden : (isKeyWindow || mouseInside) ? .active : .idle
+    let desired = policy.desiredAppearance(
+      intent: userIntent,
+      parentActive: parentTracker.isParentActive,
+      isKey: isKeyWindow,
+      mouseInside: mouseInside)
     let changed = desired != currentAppearance
     let previous = currentAppearance
     if changed {
       currentAppearance = desired
       log.info(
-        "updateAppearance: \(previous.rawValue) → \(desired.rawValue) [intent=\(userIntent) parentActive=\(parentTracker.isParentActive) key=\(isKeyWindow) mouseIn=\(mouseInside) overlap=\(String(format: "%.0f%%", overlapRatio * 100))]"
+        "updateAppearance: \(previous.rawValue) → \(desired.rawValue) [intent=\(userIntent) parentActive=\(parentTracker.isParentActive) key=\(isKeyWindow) mouseIn=\(mouseInside)]"
       )
     }
 
@@ -1748,11 +1959,9 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
 
     case .idle:
       setCloseButtonVisible(false)
-      let idleAlpha =
-        (forceFullOpacity || overlapRatio < 0.5)
-        ? Constants.alphaActive : Constants.alphaIdle
-      let duration = becomingVisible ? Constants.fadeInSecs : Constants.fadeOutSecs
-      animateAlpha(to: idleAlpha, duration: duration)
+      animateAlpha(
+        to: policy.idleAlpha(overlap: parentOverlapRatio(), freshlyRevealed: freshlyRevealed),
+        duration: becomingVisible ? Constants.fadeInSecs : Constants.fadeOutSecs)
 
     case .active:
       setCloseButtonVisible(true)
@@ -1769,39 +1978,93 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
     layer.add(anim, forKey: "borderGlow")
   }
 
-  func reveal() {
-    guard !config.headless else { return }
+  func reveal(source: TriggerSource) {
+    guard !config.headless || config.debugHeadlessReveal else { return }
+    // Count only actual openings: reveal also re-affirms an already-shown
+    // panel (e.g. an icon click while visible).
+    if currentAppearance == .hidden {
+      emitTelemetryEvent(
+        event: "open", status: "info",
+        attributes: ["source": source.rawValue, "presentation": config.presentation.telemetryName],
+        log: log)
+    }
     flashBorder()
-    // Explicit show should stay visible while the user looks for the panel.
-    // A later parent activation returns the panel to .sticky and resumes
-    // normal focus tracking.
+    // An explicit show should stay visible while the user looks for the panel;
+    // the automatic policy releases that insistence on the next app switch.
     userIntent = .pinned
-    updateAppearance(forceFullOpacity: true)
+    pinAnchorBundleId = parentTracker.frontmostBundleId
+    updateAppearance(freshlyRevealed: true)
     let screenName = screen?.localizedName ?? "none"
     log.info("reveal: frame=\(Int(frame.origin.x)),\(Int(frame.origin.y)) size=\(Int(frame.width))x\(Int(frame.height)) screen=\(screenName)")
   }
 
-  func userClose() {
+  /// Show the panel and make it the key window. User-initiated opens (the
+  /// host shortcut, the menubar icon) focus the panel so Escape and Cmd+W work
+  /// immediately; content-driven shows must not steal focus from wherever
+  /// the user is working.
+  func revealFocused(source: TriggerSource) {
+    // Already visible: bring it to the front instead of no-op.
+    if currentAppearance != .hidden {
+      makeKeyAndOrderFront(nil)
+    }
+    grabFocusOnNextShow = true
+    reveal(source: source)
+  }
+
+  func userClose(source: TriggerSource) {
+    // Count only actual closings, mirroring the open gating in `reveal`:
+    // userClose also re-asserts dismissal of an already-hidden panel.
+    if currentAppearance != .hidden {
+      emitTelemetryEvent(
+        event: "close", status: "info",
+        attributes: ["source": source.rawValue, "presentation": config.presentation.telemetryName],
+        log: log)
+    }
     userIntent = .dismissed
     updateAppearance()
   }
 
-  func userToggle(pinned: Bool) {
+  func userToggle(pinned: Bool, source: TriggerSource) {
     if currentAppearance != .hidden {
-      userIntent = .dismissed
-    } else {
-      userIntent = pinned ? .pinned : .sticky
-      grabFocusOnNextShow = true
+      userClose(source: source)
+      return
     }
-    updateAppearance(forceFullOpacity: true)
+    emitTelemetryEvent(
+      event: "open", status: "info",
+      attributes: ["source": source.rawValue, "presentation": config.presentation.telemetryName],
+      log: log)
+    userIntent = pinned ? .pinned : .sticky
+    pinAnchorBundleId = pinned ? parentTracker.frontmostBundleId : nil
+    grabFocusOnNextShow = true
+    updateAppearance(freshlyRevealed: true)
   }
 
-  func setParentActive(_ active: Bool) {
-    // `.pinned` returns to `.sticky` all the time
-    if userIntent == .pinned {
-      userIntent = .sticky
-    }
+  /// The parent-active state changed. Re-evaluate what should be on screen and
+  /// leave ``userIntent`` alone: that state also moves when a session's parent app
+  /// is registered or dropped, which is bookkeeping, not the user looking away.
+  func refreshVisibility() {
     updateAppearance()
+  }
+
+  /// Handle a frontmost-app notification while pinned. An unavailable app
+  /// defers the decision; the first usable app recovers a missing anchor; only
+  /// a later different app proves the user switched and releases the pin.
+  func handleFrontmostAppChanged() {
+    defer { updateAppearance() }
+    guard policy.releasesPinOnAppSwitch,
+      userIntent == .pinned,
+      let frontmost = parentTracker.frontmostBundleId
+    else { return }
+
+    guard let anchor = pinAnchorBundleId else {
+      pinAnchorBundleId = frontmost
+      return
+    }
+    guard frontmost != anchor else { return }
+
+    userIntent = .sticky
+    pinAnchorBundleId = nil
+    log.info("Pin released → sticky (frontmost app changed)")
   }
 
   /// Queue a JSON-RPC payload for delivery to the iframe. Payloads are
@@ -1992,7 +2255,7 @@ class VizPanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandler {
       onOutbound?(msg)
 
     case .close:
-      userClose()
+      userClose(source: .overlay)
 
     case .shutdown(let reason):
       log.info("Shutdown requested: \(reason)")
@@ -2044,6 +2307,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   let config: Config
   let log: Log
   let adapter: IPCAdapter
+  let policy: PanelPolicy
   private var panel: VizPanel?
   private var parentTracker: ParentAppTracker?
   private var statusItem: NSStatusItem?
@@ -2053,6 +2317,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     self.config = config
     self.log = log
     self.adapter = adapter
+    self.policy = config.presentation.panelPolicy
     super.init()
   }
 
@@ -2064,18 +2329,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       log: self.log.scoped("Parent"))
     parentTracker = tracker
 
-    let vizPanel = VizPanel(config: config, log: self.log, parentTracker: tracker)
+    let vizPanel = VizPanel(config: config, log: self.log, parentTracker: tracker, policy: policy)
     panel = vizPanel
 
+    // Visibility follows the parent-active state; the pin is released only by a
+    // real frontmost-app change, so internal registrations can never hide a
+    // panel the user has not had a chance to look at yet.
     tracker.onActivated = { [weak vizPanel] in
-      DispatchQueue.main.async { vizPanel?.setParentActive(true) }
+      DispatchQueue.main.async { vizPanel?.refreshVisibility() }
     }
     tracker.onDeactivated = { [weak vizPanel] in
-      DispatchQueue.main.async { vizPanel?.setParentActive(false) }
+      DispatchQueue.main.async { vizPanel?.refreshVisibility() }
+    }
+    tracker.onFrontmostAppChanged = { [weak vizPanel] in
+      DispatchQueue.main.async { vizPanel?.handleFrontmostAppChanged() }
     }
 
-    if config.menubarContext {
+    if policy.ownsMainMenu {
       setupMainMenu()
+    }
+    if policy.hasStatusItem {
       vizPanel.onInitialized = { [weak self] in
         guard let self, self.statusItem == nil else { return }
         self.setupStatusBar()
@@ -2129,20 +2402,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     case .show:
       log.info("Received show command")
-      panel?.reveal()
+      panel?.reveal(source: .host)
 
     case .hide:
       log.info("Received hide command")
-      panel?.userClose()
+      panel?.userClose(source: .host)
 
     case .toggle:
       log.info("Received toggle command")
-      panel?.userToggle(pinned: false)
+      panel?.userToggle(pinned: false, source: .host)
 
     case .snapshot(let id):
       log.info("Snapshot requested (id: \(id))")
       guard let panel = panel else {
-        if let payload = JsonRpc.error(id: id, code: -32000, message: "Panel not available") {
+        if let payload = JsonRpc.error(id: id, code: JsonRpc.serverError, message: "Panel not available") {
           adapter.send(payload)
         }
         return
@@ -2158,10 +2431,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.adapter.send(payload)
           }
         case .failure(let error):
-          if let payload = JsonRpc.error(id: id, code: -32000, message: error.localizedDescription) {
+          if let payload = JsonRpc.error(id: id, code: JsonRpc.serverError, message: error.localizedDescription) {
             self.adapter.send(payload)
           }
         }
+      }
+
+    case .state(let id):
+      // Debug-only affordance so tests can assert behavior over stdio.
+      guard config.debug, let panel = panel else {
+        if let payload = JsonRpc.error(
+          id: id, code: -32000,
+          message: config.debug ? "Panel not available" : "state requires DDVIZ_DEBUG=1")
+        {
+          adapter.send(payload)
+        }
+        return
+      }
+      if let payload = JsonRpc.response(
+        id: id,
+        result: [
+          "appearance": panel.currentAppearance.rawValue,
+          "visible": panel.currentAppearance != .hidden,
+          "intent": panel.userIntent.rawValue,
+          "statusItem": statusItem != nil,
+        ]
+      ) {
+        adapter.send(payload)
       }
 
     case .sessionEnd:
@@ -2228,6 +2524,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     button.target = self
     button.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
+    // The on-demand icon has no menu: any click shows the panel.
+    guard policy.statusItemHasMenu else { return }
+
     let menu = NSMenu()
     menu.addItem(
       NSMenuItem(
@@ -2271,14 +2570,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func handleStatusItemClick() {
-    guard let event = NSApp.currentEvent else { return }
-    let isSecondaryClick = event.type == .rightMouseUp
+    let isSecondaryClick: Bool
+    if let event = NSApp.currentEvent {
       // Control-click arrives as .leftMouseUp with .control set, not .rightMouseUp.
-      || (event.type == .leftMouseUp && event.modifierFlags.contains(.control))
-    if isSecondaryClick {
+      isSecondaryClick = event.type == .rightMouseUp
+        || (event.type == .leftMouseUp && event.modifierFlags.contains(.control))
+    } else {
+      isSecondaryClick = false
+    }
+    if isSecondaryClick && policy.statusItemHasMenu {
       showContextMenu()
     } else {
-      toggleWindow()
+      policy.statusItemPrimaryClick(panel)
     }
   }
 
@@ -2287,10 +2590,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     item.menu = menu
     item.button?.performClick(nil)
     item.menu = nil
-  }
-
-  @objc private func toggleWindow() {
-    panel?.userToggle(pinned: true)
   }
 
   @objc private func disableMenuItemClicked() {
@@ -2307,6 +2606,7 @@ enum Main {
     let config = Config.resolve()
     let log = Log.create(enabled: config.debug, directory: config.dataDir)
     log.info("=== ddviz \(config.appVersion) starting ===")
+    log.info("Presentation: \(config.presentation)")
 
     let ipcLog = log.scoped("IPC").fn
     let adapter: IPCAdapter

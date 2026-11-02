@@ -18,7 +18,7 @@ emit_event() {
 
   [[ "$#" -ge 2 ]] || return 0
   local event="$1" status="$2"; shift 2
-  local env="prod" version="0.7.17" plugin_id="claude-code-plugin"
+  local env="prod" version="0.7.19" plugin_id="claude-code-plugin"
 
   local ddtags="env:${env},service:${DDVIZ_TELEMETRY_SERVICE},version:${version},plugin_id:${plugin_id},event:${event},status:${status}"
 

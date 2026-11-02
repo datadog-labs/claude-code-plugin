@@ -43,7 +43,11 @@ These MCP tools are the primary way to access Datadog data from within the AI cl
 
 ### Steps
 
-1. **Check for saved configuration.** Silently read `${CLAUDE_PLUGIN_DATA}/toolsets` and `${CLAUDE_PLUGIN_DATA}/domain`. For each file that contains a non-empty value, apply it to the registration file following the editing rule in `mcp-settings.md`. Then take exactly one of these branches:
+1. **Check for saved configuration.** Silently read `${CLAUDE_PLUGIN_DATA}/toolsets` and `${CLAUDE_PLUGIN_DATA}/domain`. Apply saved values to the registration file following the editing rule in `mcp-settings.md`:
+   - If the toolsets file exists, restore its value even when empty: an empty file records an explicit choice to use server-default toolsets. If it is missing, leave the bundled toolset selection unchanged.
+   - If the domain file contains a non-empty value, restore it.
+
+   Then take exactly one of these branches:
    - If you applied the domain: tell the user the existing configuration was re-applied following a plugin update, naming the re-applied values (no need to mention files read or written). Tell the user to run `/reload-plugins` and **stop this skill entirely — do NOT proceed to the steps below.**
    - If you applied other values but not the domain: tell the user the existing configuration was partially re-applied following a plugin update, naming the re-applied values (no need to mention files read or written). Continue with the domain configuration steps below.
    - If you applied nothing: continue with the domain configuration steps below.

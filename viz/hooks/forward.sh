@@ -14,6 +14,15 @@ else
   # shellcheck source=/dev/null
   . "$HOOK_DIR/template.ddviz_telemetry.sh"
 fi
+# The entrypoint allowlist is shared with the /ddviz status skill so the two
+# never drift. Same bundled/source-tree fallback as the telemetry lib above.
+if [[ -f "$HOOK_DIR/ddviz_entrypoint.sh" ]]; then
+  # shellcheck source=/dev/null
+  . "$HOOK_DIR/ddviz_entrypoint.sh"
+else
+  # shellcheck source=/dev/null
+  . "$HOOK_DIR/template.ddviz_entrypoint.sh"
+fi
 
 INPUT=$(cat)
 
@@ -166,14 +175,13 @@ should_skip() {
   fi
 
   # Only show the panel for known interactive hosts: the native CLI and the
-  # VS Code extension. Everything else won't show ddviz.
-  case "${CLAUDE_CODE_ENTRYPOINT:-}" in
-    cli|claude-vscode) ;;
-    *)
-      emit_output
-      return 0
-      ;;
-  esac
+  # VS Code extension. Everything else won't show ddviz. The allowlist lives
+  # in the shared entrypoint lib (DDVIZ_ALLOWED_ENTRYPOINTS) so forward.sh and
+  # the /ddviz status skill can't drift apart.
+  if ! ddviz_entrypoint_allowed; then
+    emit_output
+    return 0
+  fi
 
   # Avoid sub-agents: `agent_id` is only present inside a subagent.
   local agent_id status
@@ -223,6 +231,8 @@ ensure_daemon_macos() {
     swift "${CLAUDE_PLUGIN_ROOT}/viz/ddviz.swift" &>/dev/null &
   local pid=$!
 
+  # Waits up to 10s for a cold start. The PostToolUse hook timeout in
+  # claude-code/hooks/hooks.json must stay comfortably above this.
   for _ in {1..20}; do
     if [[ -S "$socket" ]]; then
       return 0

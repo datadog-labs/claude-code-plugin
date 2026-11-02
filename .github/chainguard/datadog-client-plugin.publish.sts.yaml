@@ -8,7 +8,10 @@ issuer: https://token.actions.githubusercontent.com
 # next stable v*-public release — tags using the new grammar will fail at
 # token-mint until the updated policy reaches the public repo's main.
 #
-# GitHub's immutable OIDC subject includes the organization and repository IDs.
+# Subject includes the numeric org/repo IDs (ddoghq@230443989,
+# datadog-client-plugin@1348581382) because the ddoghq org has GitHub's OIDC
+# subject-claim ID customization enabled — pinning IDs also survives any
+# future repo rename/transfer.
 subject_pattern: 'repo:ddoghq@230443989/datadog-client-plugin@1348581382:ref:refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-preview\.[a-z0-9-]+)?(\+[a-z0-9-]+)?-public'
 
 claim_pattern:

@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Extract version
         id: version
@@ -57,8 +57,8 @@ jobs:
           # catches draft releases, which have a tag_name but no git tag ref
           # yet — otherwise every push before the draft is published would
           # create a duplicate draft for the same version.
-          MATCH=$(gh api repos/${{ github.repository }}/releases --paginate \
-            --jq "[.[] | select(.tag_name == \"${TAG}\")] | length")
+          MATCH=$(gh api "repos/${{ github.repository }}/releases?per_page=100" --paginate \
+            --jq '[.[] | select(.tag_name == env.TAG)] | length')
           if [ "$MATCH" -gt 0 ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Release ${TAG} already exists (or is already drafted), skipping"
@@ -67,6 +67,7 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
 
       - name: Create draft release
         if: steps.check.outputs.exists == 'false'
