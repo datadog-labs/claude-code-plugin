@@ -1,6 +1,4 @@
-**This plugin is currently in Preview.**
-
-# Datadog Claude Code Plugin
+# Datadog Plugin for Claude Code
 
 Query your Datadog data directly from Claude Code using natural language. Ask about logs, metrics, traces, dashboards, monitors, and more.
 
@@ -19,7 +17,7 @@ Start Claude Code, install the plugin from the official marketplace:
 /plugin install datadog@claude-plugins-official
 ```
 
-> Auto-updates: Enable auto-update so Claude Code notifies when an update is available. Run /plugin, select the Marketplaces tab, select claude-plugins-official, then select Enable auto-update.
+> _**Auto-update**: Enable auto-update so Claude Code notifies when an update is available. Run `/plugin`, select the `Marketplaces` tab, select `claude-plugins-official`, then select `Enable auto-update`._
 
 Before you can start querying your Datadog data, you’ll need to connect the plugin to Datadog using your account. The setup process will guide you in selecting the correct Datadog MCP domain. After setup, follow the instructions shown in Claude Code.
 
@@ -63,31 +61,44 @@ The plugin provides a few commands you can run in the agent to manage configurat
 
 ## Advanced usage
 
-### Key authentication
-
-Instead of OAuth, you can authenticate using a Datadog API key and application key. Set all three environment variables before starting Claude Code:
-
-```bash
-DD_MCP_DOMAIN=your-mcp-domain \
-DD_API_KEY=your-api-key \
-DD_APPLICATION_KEY=your-application-key \
-claude
-```
-
-The `DD_MCP_DOMAIN` value must be the MCP domain (e.g. `mcp.datadoghq.com`, `mcp.us3.datadoghq.com`, `mcp.datadoghq.eu`), not a URL — do not include `https://`. When using key authentication, `/ddsetup` is not required — the plugin connects directly.
-
 ### Environment variable overrides
 
 The plugin uses environment variables with default values in its registration file. You can override these defaults by setting the environment variables directly:
 
-- `DD_MCP_DOMAIN` — overrides the Datadog MCP domain. If set, the plugin uses this value regardless of what `/ddsetup` or `/ddconfig` configured. Useful for non-standard environments or key authentication.
-- `DD_MCP_TOOLSETS` — overrides the enabled toolsets (comma-separated). If set, the plugin uses this value regardless of what `/ddtoolsets` configured.
+- `DD_MCP_DOMAIN` — overrides the [Datadog MCP domain](https://docs.datadoghq.com/mcp_server/setup/?tab=claudecode#mcp-server-endpoints).
+  - for example, `mcp.us3.datadoghq.com`.
+  - if set, the plugin uses this value regardless of what `/ddsetup` or `/ddconfig` configured. Useful for non-standard environments or key authentication.
+
+- `DD_MCP_TOOLSETS` — overrides the enabled toolsets.
+  - the value can be a single toolset or a comma-separated list of toolsets, for example `all` or `core, apm, error-tracking`.
+  - if set, the plugin uses this value regardless of what `/ddtoolsets` configured.
 
 When environment variables are set, `/ddsetup`, `/ddconfig`, and `/ddtoolsets` still edit the default values in the registration file, but those defaults won't take effect until the environment variables are removed.
 
+### Token and Key authentication
+
+Instead of OAuth, you can authenticate using a Datadog [Personal Access Token](https://docs.datadoghq.com/account_management/personal-access-tokens/) (PAT) or [Service Access Token](https://docs.datadoghq.com/account_management/service-access-tokens/) (SAT). Set these environment variables before starting Claude Code:
+
+```bash
+DD_MCP_DOMAIN=<your-mcp-domain> \
+DD_APPLICATION_KEY=<your-access-token> \
+claude
+```
+
+You can also use [API and Application keys](https://docs.datadoghq.com/account_management/api-app-keys/) in a similar way:
+
+```bash
+DD_MCP_DOMAIN=<your-mcp-domain> \
+DD_API_KEY=<your-api-key> \
+DD_APPLICATION_KEY=<your-application-key> \
+claude
+```
+
+When using key authentication, `/ddsetup` is not required — the plugin connects directly.
+
 ## Good to know
 
-- By default, authentication is handled via OAuth in your browser. Key authentication is also [supported](#key-authentication).
+- By default, authentication is handled via OAuth in your browser. Token or key authentication is also [supported](#token-and-key-authentication).
 - No Datadog credentials are sent to the AI model provider.
 - On macOS, visualization tool results can render in a native side panel. Run `/ddviz` to enable, disable, or check its status. Disabling applies to every Claude Code install sharing the default data directory (a dev build with `DDVIZ_DATA_DIR` set is controlled separately). If the panel isn't showing, `/ddviz` also diagnoses why and points you at the fix.
 - When the panel can't render, the plugin sends lightweight telemetry (a failure-reason code only, never your queries or results) so we can spot broken setups. Opt out with `DO_NOT_TRACK` or `DISABLE_TELEMETRY`.
